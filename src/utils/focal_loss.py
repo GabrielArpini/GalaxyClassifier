@@ -23,5 +23,7 @@ class FocalLoss(nn.Module):
         prob = F.softmax(inputs, dim=1)
         pt = prob.gather(1, targets.unsqueeze(1)).squeeze(1)
         focal_loss = ((1-pt)**self.gamma*ce_loss)
+        if self.class_weights is not None:
+            focal_loss = focal_loss * self.class_weights[targets]
         return focal_loss.mean() if self.reduce else focal_loss
-
+    
