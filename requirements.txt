@@ -1,0 +1,10 @@
+astroNN
+torch
+torchvision
+torchmetrics
+mlflow
+scikit-image
+pandas
+numpy
+scikit-learn
+notebook
