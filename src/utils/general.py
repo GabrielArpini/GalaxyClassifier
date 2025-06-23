@@ -42,27 +42,21 @@ class LazyGalaxyDataset(Dataset):
         return image_tensor, label_tensor
 
 
-def get_dataset(X_train,X_test,X_val,images_path,labels_path):
+def get_dataset(train_indices, test_indices, val_indices, images_path, labels_path):
     '''
     Gets the dataset for training, testing, and validation.
     Args:
-        X_train (np.ndarray): Training images.
-        X_test (np.ndarray): Testing images.
-        X_val (np.ndarray): Validation images.
+        train_indices (np.ndarray): Actual indices for training samples.
+        test_indices (np.ndarray): Actual indices for testing samples.
+        val_indices (np.ndarray): Actual indices for validation samples.
     Returns:
         tuple: Three datasets for training, testing, and validation.
     '''
     
-    train_indices = np.arange(len(X_train))
-    test_indices = np.arange(len(X_test))
-    valid_indices = np.arange(len(X_val))
-
-    images_path = images_path 
-    labels_path = labels_path 
-
     train_dataset = LazyGalaxyDataset(train_indices, images_path, labels_path)
     test_dataset = LazyGalaxyDataset(test_indices, images_path, labels_path)
-    valid_dataset = LazyGalaxyDataset(valid_indices, images_path, labels_path)
+    valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path)
+    
     return train_dataset, test_dataset, valid_dataset
 
 if __name__ == '__main__':
