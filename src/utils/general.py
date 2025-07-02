@@ -4,9 +4,29 @@ from astroNN.datasets import load_galaxy10
 import torch
 from torch.utils.data import Dataset
 import numpy as np
+from pathlib import Path
+
+def get_project_root(marker: str = 'src'):
+    path = Path(__file__).resolve()
+    for parent in path.parents:
+        if (parent / marker).exists():
+            return parent
+    raise FileNotFoundError(f"Could not find project root with marker: {marker}")
 
 
-def get_data(path='src/data'):
+def get_data(marker='src'):
+    """
+    Downloads data if it doesn't exist, if it exists loads it in variables images and labels
+
+    Args:
+    marker(str): name of a file to get the path to.
+
+    Returns:
+    images(ndarray): A numpy array with the images.
+    labels(ndarray): A numpy array with the labels.
+    """
+    root_path = get_project_root(marker)
+    path = root_path / "data"
     images_path = os.path.join(path, 'images.npy')
     labels_path = os.path.join(path, 'labels.npy')
     
@@ -23,11 +43,11 @@ def get_data(path='src/data'):
 
 
 class LazyGalaxyDataset(Dataset):
-    def __init__(self, indices, image_path, label_path):
+    def __init__(self, indices, image_path, label_path, transform=None):
         self.indices = indices
         self.images = np.load(image_path, mmap_mode="r")
         self.labels = np.load(label_path, mmap_mode="r")
-
+        self.transform = transform
     def __len__(self):
         return len(self.indices)
 
@@ -38,7 +58,8 @@ class LazyGalaxyDataset(Dataset):
 
         image_tensor = torch.from_numpy(image.astype(np.float32)).permute(2, 0, 1)
         label_tensor = torch.tensor(label, dtype=torch.int64)
-
+        if self.transform:
+            image_tensor = self.transform(image_tensor)
         return image_tensor, label_tensor
 
 
