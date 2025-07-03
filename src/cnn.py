@@ -12,11 +12,12 @@ class NeuralNet(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1)
         self.conv4 = nn.Conv2d(128,256, kernel_size=3, padding=1, stride=1)
+        self.conv5 = nn.Conv2d(256,512, kernel_size=3, padding=1, stride=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.dropout = nn.Dropout(p=0.2)
-        self.fc1 = nn.Linear(256 * 16 * 16, 128)
-        self.fc2 = nn.Linear(128, 84)
-        self.fc3 = nn.Linear(84,10)
+        self.fc1 = nn.Linear(512 * 8 * 8, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128,10)
         
         # Apply kaiming init
         for m in self.modules():
@@ -33,6 +34,8 @@ class NeuralNet(nn.Module):
         x = self.pool(x)  # -> (128, 32, 32)
         x = F.relu(self.conv4(x)) # -> (256, 32, 32)
         x = self.pool(x) # -> (256, 16, 16)
+        x = F.relu(self.conv5(x)) # -> (512, 16, 16)
+        x = self.pool(x) # -> (512, 8, 8)
         x = torch.flatten(x, 1)
         x = self.dropout(F.relu(self.fc1(x)))
         x = self.dropout(F.relu(self.fc2(x)))

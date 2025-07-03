@@ -141,7 +141,7 @@ root_path = g.get_project_root()
 images,labels = g.get_data()
 images_path = root_path / 'data' / 'images.npy'
 labels_path = root_path / 'data' / 'labels.npy'
-
+img_example = images[0]
 original_indices = np.arange(len(images))
 
 train_indices, temp_indices = train_test_split(
@@ -194,23 +194,23 @@ valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
 
 beta = 0.999
 gamma = 2.0
-epochs = 50
-lr = 1e-4
+epochs = 20
+lr = 1e-3
 
 model = NeuralNet().to(device)
 loss = FocalLoss(
     beta=beta,
     gamma=gamma,
     samples_per_class=num_samples_per_class,
-    reduce=True
+    reduce=True,
+    device=device
 ).to(device)
 
 # Try CE loss instead of FL
 weights = torch.tensor([1.0 / s for s in num_samples_per_class], device=device)
 weights = weights / weights.max()  # Normalize to cap weights
-loss = nn.CrossEntropyLoss(weight=weights)
+#loss = nn.CrossEntropyLoss(weight=weights)
 
-loss = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
@@ -231,6 +231,8 @@ with mlflow.start_run() as run:
     print("Training model...")
     train_book(model, optimizer, loss, train_loader, n_epochs=epochs,device=device)
 torch.cuda.empty_cache()
+
+model_info = mlflow.pytorch.log_model(model, name="cbfl_model",input_example=img_example)
 
 model.eval()
 metric = torchmetrics.classification.MulticlassConfusionMatrix(num_classes=10).to(device)

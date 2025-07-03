@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=1.0,beta=0.999, gamma=2.0, reduce=True,samples_per_class=None,device='cpu'):
+    def __init__(self,beta=0.999, gamma=2.0, reduce=True,samples_per_class=None,device='cpu'):
         super(FocalLoss, self).__init__()
-        self.alpha = alpha
+
         self.gamma = gamma
         self.beta = beta
         self.reduce = reduce
@@ -14,18 +14,17 @@ class FocalLoss(nn.Module):
         
         #Compute effective number of samples per class
         if self.samples_per_class is not None:
-            self.effective_num = (1-torch.pow(beta,torch.tensor(samples_per_class,dtype=torch.float32))) / (1-beta)
-            inverse_en = 1 / self.effective_num
-            class_weights = inverse_en / inverse_en.sum() * len(samples_per_class)
-            self.class_weights = class_weights.to(self.device)
-        else:
-            self.class_weights = None
+            effective_num = (1-torch.pow(beta,torch.tensor(samples_per_class,dtype=torch.float32))) / (1-beta)
+            self.inverse_en = (1 / effective_num).to(device)
+
     def forward(self, inputs, targets):
+        inputs = inputs.to(self.device)
+        targets = targets.to(self.device)
         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
         prob = F.softmax(inputs, dim=1)
         pt = prob.gather(1, targets.unsqueeze(1)).squeeze(1)
-        focal_loss = ((1-pt)**self.gamma*ce_loss)
-        if self.class_weights is not None:
-            focal_loss = focal_loss * self.class_weights.to(targets.device)[targets]
-        return focal_loss.mean() if self.reduce else focal_loss
+        focal_loss = ((1-pt)**self.gamma)*ce_loss
+        cb_focal = self.inverse_en[targets] * focal_loss 
+        
+        return cb_focal.mean() if self.reduce else cb_focal
     
