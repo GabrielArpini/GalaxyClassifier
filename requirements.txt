@@ -10,3 +10,4 @@ scikit-learn
 notebook
 torchinfo
 pathlib
+optuna

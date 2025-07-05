@@ -24,9 +24,12 @@ import matplotlib.pyplot as plt
 
 from astroNN.datasets import load_galaxy10
 
-import skimage as ski
+import optuna
+# override Optuna's default logging to ERROR only, to use optuna with mlflow
+optuna.logging.set_verbosity(optuna.logging.ERROR)
 
 import mlflow
+from mlflow.models.signature import infer_signature # to create custom infer_signature
 mlflow.set_tracking_uri("http://127.0.0.1:5000/")
 mlflow.set_experiment("galaxy-classifier-experiment")
 
@@ -40,7 +43,43 @@ def get_label_count(labels):
   counts = np.unique(labels, return_counts=True)
   return counts[1].tolist()
 
-def train_book(model, optimizer, criterion, train_loader, n_epochs, device):
+def conf_matrix_eval(model):
+    model.eval()
+    metric = torchmetrics.classification.MulticlassConfusionMatrix(num_classes=10).to(device)
+
+    with torch.no_grad():
+        for X_batch, y_batch in valid_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            y_pred_logits = model(X_batch)  # Raw logits [batch_size, 10]
+
+            # Convert logits to predicted class indices
+            _, y_pred_classes = torch.max(y_pred_logits, 1)
+
+            metric.update(y_pred_classes, y_batch)  
+
+    conf_matrix = metric.compute()
+
+    # Calculate precision, recall, and F1-score from the confusion matrix
+    for i, class_name in enumerate(class_names):
+        tp = conf_matrix[i, i].item()
+        fp = conf_matrix[:, i].sum().item() - tp
+        fn = conf_matrix[i, :].sum().item() - tp
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+        print(f"Metrics for {class_name}:")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall: {recall:.4f}")
+        print(f"  F1-score: {f1_score:.4f}")
+
+
+
+
+
+
+def train_book(model, optimizer, criterion, train_loader, n_epochs, device,scheduler=None,batch_size=32):
     accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     val_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     train_accuracies = []
@@ -53,12 +92,13 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device):
         model.train()
         total_loss = 0.0
         total_valid_loss = 0.0
-        correct = 0
+        accuracy.reset()
         total = 0
+
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
-            y_pred = model(X_batch).to(device)
+            y_pred = model(X_batch)
 
             # Ensure y_batch is integer indices
             if y_batch.dtype != torch.long:
@@ -68,27 +108,28 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device):
             total_loss += loss.item()
 
             _, predicted = y_pred.max(1)
+            accuracy.update(predicted, y_batch)
             loss.backward()
             optimizer.step()
 
             total += y_batch.size(0)
-            correct += predicted.eq(y_batch).sum().item()
             
+        
             if batch_idx % 100 == 0:
-                batch_loss = total_loss / (batch_idx + 1)
-                batch_acc = 100.0 * correct / total
+                batch_loss = loss.item()
+                batch_acc = accuracy.compute().item() 
                 mlflow.log_metrics(
                     {"batch_loss": batch_loss, "batch_accuracy": batch_acc},
                     step=epoch * len(train_loader) + batch_idx,
                 )
-        epoch_accuracy = 100 * correct / total
+        epoch_accuracy = accuracy.compute().item()
         train_losses.append(total_loss)
         train_accuracies.append(epoch_accuracy)
-        scheduler.step()
+        if scheduler:
+            scheduler.step()
 
         model.eval()
         val_accuracy.reset()
-        all_predictions = []
         with torch.no_grad():
             for X_batch, y_batch in valid_loader:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
@@ -98,32 +139,99 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device):
 
  
                 _, predicted_class = torch.max(y_pred, 1)  
-                all_predictions.extend(predicted_class.cpu().numpy())
+        
                 val_accuracy.update(predicted_class, y_batch)  
 
-        valid_accuracy = val_accuracy.compute()
-
+        val_acc_accuracy = val_accuracy.compute()
+        mean_valid_loss = total_valid_loss / len(valid_loader)
         accuracy.reset()
-        with torch.no_grad():
-            for X_batch, y_batch in train_loader:
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                y_pred = model(X_batch)
-                _, predicted_class = torch.max(y_pred, 1)  
-                all_predictions.extend(predicted_class.cpu().numpy())
-                accuracy.update(predicted_class, y_batch)  
         
-        train_accuracy = accuracy.compute()
-        pred_distribution = Counter(all_predictions)
-        #print(f"Predicted class distribution: {pred_distribution}")
+        
+     
+
         mean_loss = total_loss / len(train_loader)
         mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
-        mlflow.log_metric("train_accuracy",f"{train_accuracy:.6f}",step=epoch)
-        mlflow.log_metric("validation_accuracy",f"{valid_accuracy:.6f}",step=epoch)
-        mlflow.log_metric("validation_loss", f"{total_valid_loss:.6f}", step=epoch)
-        print(f"Epoch {epoch + 1}/{n_epochs}, Loss: {mean_loss:.6f}, Train Accuracy: {train_accuracy:.6f}, Validation Loss: {total_valid_loss:.6f} Validation Accuracy: {valid_accuracy:.6f}")
+        mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
+        mlflow.log_metric("validation_accuracy",f"{val_acc_accuracy:.6f}",step=epoch)
+        mlflow.log_metric("validation_loss", f"{mean_valid_loss:.6f}", step=epoch)
+        print(f"Epoch {epoch + 1}/{n_epochs}, Loss: {mean_loss:.6f}, Train Accuracy: {epoch_accuracy:.6f}, Validation Loss: {mean_valid_loss:.6f} Validation Accuracy: {val_acc_accuracy:.6f}")
+    return model, val_acc_accuracy
+def champion_callback(study, frozen_trial):
+    """
+    Implementation from official mlflow docs
+    """
+    winner = study.user_attrs.get("winner", None)
+    
+    if study.best_value and winner != study.best_value:
+      study.set_user_attr("winner", study.best_value)
+      if winner:
+          improvement_percent = (abs(winner - study.best_value) / study.best_value) * 100
+          print(
+              f"Trial {frozen_trial.number} achieved value: {frozen_trial.value} with "
+              f"{improvement_percent: .4f}% improvement"
+          )
+      else:
+          print(f"Initial trial {frozen_trial.number} achieved value: {frozen_trial.value}")
 
+def objective(trial):
+    with mlflow.start_run(nested=True):
+        params = {
+          "epochs": 30,
+          "learning_rate": trial.suggest_float("lr", 1e-3, 1e-2, log=True),
+          "batch_size": 32,
+          "loss function": "Class Balanced Focal Loss",
+          "fl_beta": trial.suggest_categorical("fl_beta",[0.9,0.99,0.999,0.9999]),
+          "fl_gamma": trial.suggest_float("fl_gamma",1,10),
+          "optimizer": "ADAM",
+        }
+        mlflow.log_params(params)
 
+        model = NeuralNet().to(device)
+        loss = FocalLoss(
+            beta= params["fl_beta"],
+            gamma=params["fl_gamma"],
+            samples_per_class=num_samples_per_class,
+            reduce=True,
+            device=device
+        ).to(device)
+        
+        optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
 
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+        
+        # Train model
+        print("training model...")
+        model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=scheduler)
+        
+    
+        
+        model.eval()
+        with torch.no_grad():
+            # Ensure img_example is a single example, not a batch
+            single_img_example = img_example[0:1].to(device)  # Shape: [1, 3, 256, 256]
+            output = model(single_img_example)
+        
+        # Convert to NumPy arrays for MLflow
+        input_example_np = single_img_example.cpu().detach().numpy()  # Shape: [1, 3, 256, 256]
+        output_np = output.cpu().detach().numpy()  # Model output as NumPy
+        
+        # Verify input_example_np is a NumPy array
+        if not isinstance(input_example_np, np.ndarray):
+            raise ValueError(f"input_example_np is not a NumPy array, got {type(input_example_np)}")
+        
+        # Create signature
+        signature = infer_signature(input_example_np, output_np)
+
+        conf_matrix_eval(model)
+
+        model_info = mlflow.pytorch.log_model(
+            pytorch_model=model,
+            artifact_path="cbfl_model",
+            input_example=input_example_np,
+            signature=signature,
+            code_paths=code_paths 
+        )
+        return -validation_accuracy
 
 class_names = [
     "0 - Disturbed Galaxies",
@@ -138,10 +246,16 @@ class_names = [
     "9 - Edge-on Galaxies with Bulge"
 ]
 root_path = g.get_project_root()
+
+code_paths = [
+            str(root_path / "src" / "utils" / "focal_loss.py"),
+            str(root_path / "src" / "cnn.py")
+        ]
+
 images,labels = g.get_data()
-images_path = root_path / 'data' / 'images.npy'
-labels_path = root_path / 'data' / 'labels.npy'
-img_example = images[0]
+images_path =  root_path / 'data' / 'images.npy'
+labels_path =  root_path / 'data' / 'labels.npy'
+
 original_indices = np.arange(len(images))
 
 train_indices, temp_indices = train_test_split(
@@ -190,81 +304,24 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
 
-# Hyperparameters
-
-beta = 0.999
-gamma = 2.0
-epochs = 20
-lr = 1e-3
-
-model = NeuralNet().to(device)
-loss = FocalLoss(
-    beta=beta,
-    gamma=gamma,
-    samples_per_class=num_samples_per_class,
-    reduce=True,
-    device=device
-).to(device)
+img_example = next(iter(train_loader))[0]
 
 # Try CE loss instead of FL
 weights = torch.tensor([1.0 / s for s in num_samples_per_class], device=device)
 weights = weights / weights.max()  # Normalize to cap weights
 #loss = nn.CrossEntropyLoss(weight=weights)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+# Main training loop with optuna
+with mlflow.start_run(nested=True) as run:
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=50, callbacks=[champion_callback])    
+    best_trial = study.best_trial
+    print(f"Best trial: {best_trial.number}")
+    print(f"Best validation accuracy: {-best_trial.value:.6f}")
+    print(f"Best parameters: {best_trial.params}") 
 
-
-with mlflow.start_run() as run:
-    # Save parameters to mlflow
-    params = {
-          "epoch:s": epochs,
-          "learning_rate": lr,
-          "batch_size": 32,
-          "loss_function": loss.__class__.__name__,
-          "lf_beta": beta,
-          "lf_gamma": gamma,
-          "optimizer": "ADAM",
-    }
-    mlflow.log_params(params)
-    print("Training model...")
-    train_book(model, optimizer, loss, train_loader, n_epochs=epochs,device=device)
 torch.cuda.empty_cache()
-
-model_info = mlflow.pytorch.log_model(model, name="cbfl_model",input_example=img_example)
-
-model.eval()
-metric = torchmetrics.classification.MulticlassConfusionMatrix(num_classes=10).to(device)
-
-with torch.no_grad():
-    for X_batch, y_batch in valid_loader:
-        X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-        y_pred_logits = model(X_batch)  # Raw logits [batch_size, 10]
-
-        # Convert logits to predicted class indices
-        _, y_pred_classes = torch.max(y_pred_logits, 1)
-
-        metric.update(y_pred_classes, y_batch)  
-
-conf_matrix = metric.compute()
-
-# Calculate precision, recall, and F1-score from the confusion matrix
-for i, class_name in enumerate(class_names):
-    tp = conf_matrix[i, i].item()
-    fp = conf_matrix[:, i].sum().item() - tp
-    fn = conf_matrix[i, :].sum().item() - tp
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-
-    print(f"Metrics for {class_name}:")
-    print(f"  Precision: {precision:.4f}")
-    print(f"  Recall: {recall:.4f}")
-    print(f"  F1-score: {f1_score:.4f}")
-
-
 
 
 

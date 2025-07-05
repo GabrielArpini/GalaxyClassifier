@@ -16,7 +16,7 @@ class FocalLoss(nn.Module):
         if self.samples_per_class is not None:
             effective_num = (1-torch.pow(beta,torch.tensor(samples_per_class,dtype=torch.float32))) / (1-beta)
             self.inverse_en = (1 / effective_num).to(device)
-
+            
     def forward(self, inputs, targets):
         inputs = inputs.to(self.device)
         targets = targets.to(self.device)

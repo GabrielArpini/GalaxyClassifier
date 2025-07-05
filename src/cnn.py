@@ -14,7 +14,7 @@ class NeuralNet(nn.Module):
         self.conv4 = nn.Conv2d(128,256, kernel_size=3, padding=1, stride=1)
         self.conv5 = nn.Conv2d(256,512, kernel_size=3, padding=1, stride=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=0.5)
         self.fc1 = nn.Linear(512 * 8 * 8, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128,10)
