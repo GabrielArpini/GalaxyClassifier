@@ -11,6 +11,7 @@ from collections import Counter
 from utils.focal_loss import FocalLoss
 import utils.general as g
 from utils.general import LazyGalaxyDataset
+from utils.early_stop import EarlyStopping
 from cnn import NeuralNet
 
 import os
@@ -83,7 +84,8 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
     accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     val_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     train_accuracies = []
-    train_losses = []    
+    train_losses = []   
+    #early_stopping = EarlyStopping(patience=5, min_delta=0.001) 
     with open("model_summary.txt", "w") as f:
         f.write(str(summary(model, input_size=(batch_size, 3, 256, 256))))
     mlflow.log_artifact("model_summary.txt")
@@ -94,7 +96,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         total_valid_loss = 0.0
         accuracy.reset()
         total = 0
-
+            
         for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
@@ -110,6 +112,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             _, predicted = y_pred.max(1)
             accuracy.update(predicted, y_batch)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.001) #Gradient clipping 
             optimizer.step()
 
             total += y_batch.size(0)
@@ -141,15 +144,17 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
                 _, predicted_class = torch.max(y_pred, 1)  
         
                 val_accuracy.update(predicted_class, y_batch)  
-
+        mean_loss = total_loss / len(train_loader)
         val_acc_accuracy = val_accuracy.compute()
         mean_valid_loss = total_valid_loss / len(valid_loader)
         accuracy.reset()
         
-        
-     
+        #early_stopping(mean_valid_loss)
+        #if early_stopping.early_stop:
+            #print("Early stopping at epoch:", epoch)
+            #break  
 
-        mean_loss = total_loss / len(train_loader)
+        
         mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
         mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
         mlflow.log_metric("validation_accuracy",f"{val_acc_accuracy:.6f}",step=epoch)
@@ -175,14 +180,15 @@ def champion_callback(study, frozen_trial):
 
 def objective(trial):
     with mlflow.start_run(nested=True):
+        #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
-          "epochs": 30,
-          "learning_rate": trial.suggest_float("lr", 1e-3, 1e-2, log=True),
-          "batch_size": 32,
+          "epochs": 100, # Optuna trial used 30 epochs instead of 100
+          "learning_rate": 0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+          "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
-          "fl_beta": trial.suggest_categorical("fl_beta",[0.9,0.99,0.999,0.9999]),
-          "fl_gamma": trial.suggest_float("fl_gamma",1,10),
-          "optimizer": "ADAM",
+          "fl_beta": 0.9015792772207417,  #trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
+          "fl_gamma": 2.5010208252483297, #trial.suggest_float("fl_gamma", 1, 10),
+          "optimizer": "ADAMW",
         }
         mlflow.log_params(params)
 
@@ -195,13 +201,13 @@ def objective(trial):
             device=device
         ).to(device)
         
-        optimizer = torch.optim.Adam(model.parameters(), lr=params["learning_rate"])
+        optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
 
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+        #scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
         
         # Train model
         print("training model...")
-        model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=scheduler)
+        model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=None)
         
     
         
@@ -269,24 +275,28 @@ val_indices, test_indices = train_test_split(
 
 # Create transformations for data augmentation
 train_transform = transforms.Compose([
+    transforms.CenterCrop((170, 240)),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
+    transforms.RandomRotation(degrees=270),
+    transforms.ColorJitter(brightness=0.8, contrast=0.8),
+    transforms.Resize((256,256)), #Ensure default size
+
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
+
 ])
 train_transform = transforms.Compose([
     transforms.ToPILImage(),  
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(degrees=15),
     transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    transforms.RandomResizedCrop(size=256, scale=(0.8, 1.0)),
     transforms.ToTensor(),  
-    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 ])
 val_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.ToTensor(),
-    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 ])
 train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path, train_transform)
 test_dataset = LazyGalaxyDataset(test_indices,images_path,labels_path)
@@ -298,7 +308,7 @@ valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path, val_tra
 train_labels = labels[train_indices]
 num_samples_per_class = get_label_count(train_labels)
 
-batch_size = 32
+batch_size = 64
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
@@ -315,7 +325,8 @@ weights = weights / weights.max()  # Normalize to cap weights
 # Main training loop with optuna
 with mlflow.start_run(nested=True) as run:
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=50, callbacks=[champion_callback])    
+    # Trials is 1 because i`ve already did 50 trials to find current value
+    study.optimize(objective, n_trials=1, callbacks=[champion_callback])    
     best_trial = study.best_trial
     print(f"Best trial: {best_trial.number}")
     print(f"Best validation accuracy: {-best_trial.value:.6f}")
