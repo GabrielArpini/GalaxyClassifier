@@ -128,8 +128,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         epoch_accuracy = accuracy.compute().item()
         train_losses.append(total_loss)
         train_accuracies.append(epoch_accuracy)
-        if scheduler:
-            scheduler.step()
+        
 
         model.eval()
         val_accuracy.reset()
@@ -154,7 +153,8 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             #print("Early stopping at epoch:", epoch)
             #break  
 
-        
+        if scheduler:
+            scheduler.step(mean_valid_loss) 
         mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
         mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
         mlflow.log_metric("validation_accuracy",f"{val_acc_accuracy:.6f}",step=epoch)
@@ -183,7 +183,7 @@ def objective(trial):
         #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
           "epochs": 100, # Optuna trial used 30 epochs instead of 100
-          "learning_rate": 0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+          "learning_rate": 1e-3,  #0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
           "fl_beta": 0.9015792772207417,  #trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
@@ -202,12 +202,12 @@ def objective(trial):
         ).to(device)
         
         optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
-
-        #scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+ 
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
         
         # Train model
         print("training model...")
-        model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=None)
+        model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=scheduler)
         
     
         
