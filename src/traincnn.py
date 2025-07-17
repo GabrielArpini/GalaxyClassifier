@@ -156,7 +156,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
 
         if scheduler:
             # Add param 'mean_valid_loss' if scheduler is Plateau
-            scheduler.step(mean_valid_loss) 
+            scheduler.step() 
         mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
         mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
         mlflow.log_metric("validation_accuracy",f"{val_acc_accuracy:.6f}",step=epoch)
@@ -184,7 +184,7 @@ def objective(trial):
     with mlflow.start_run(nested=True):
         #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
-          "epochs": 150, # Optuna trial used 30 epochs instead of 100
+          "epochs": 80, # Optuna trial used 30 epochs instead of 100
           "learning_rate": 0.001,  #0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
@@ -208,12 +208,23 @@ def objective(trial):
         
         optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
         # This scheduler gets too slow when approaching local minima, even tho it can escape from it, the process is very slow
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, threshold=0.001,patience=5)
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, threshold=0.001,patience=5)
 
         # Test another scheduler approach
         #scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-4)
 
-         
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=0.01,                    
+            steps_per_epoch=len(train_loader),
+            epochs=params["epochs"],
+            pct_start=0.3,                  
+            anneal_strategy='cos',
+            div_factor=10,                  
+            final_div_factor=100        
+        )
+
+
         # Train model
         print("training model...")
         model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=scheduler)
@@ -246,7 +257,31 @@ def objective(trial):
             signature=signature,
             code_paths=code_paths 
         )
+        trial.set_user_attr("model_uri", model_info.model_uri)
+        trial.set_user_attr("run_id", nested_run.info.run_id)
         return -validation_accuracy
+
+def register_best_model(study, model_name="galaxy-classifier"):
+    """Register the best model from the study"""
+    best_trial = study.best_trial
+    best_model_uri = best_trial.user_attrs.get("model_uri")
+    
+    if best_model_uri:
+        try:
+            model_version = mlflow.register_model(
+                model_uri=best_model_uri,
+                name=model_name,
+                description=f"Galaxy classifier - Best trial {best_trial.number}. "
+                          f"Validation accuracy: {-best_trial.value:.6f}. "
+                          f"Parameters: {best_trial.params}"
+            )
+            
+            print(f"Best model registered: {model_name} v{model_version.version}")
+            return model_version
+        except Exception as e:
+            print(f"Error registering best model: {e}")
+    else:
+        print("No model URI found in best trial")
 
 class_names = [
     "0 - Disturbed Galaxies",
@@ -330,6 +365,16 @@ with mlflow.start_run(nested=True) as run:
     study = optuna.create_study(direction="minimize")
     # Trials is 1 because i`ve already did 50 trials to find current value
     study.optimize(objective, n_trials=1, callbacks=[champion_callback])    
+    best_model_version = register_best_model(study)
+    
+    if best_model_version:
+        client = MlflowClient()
+        client.transition_model_version_stage(
+            name="galaxy-classifier",
+            version=best_model_version.version,
+            stage="Production",
+            archive_existing_versions=True  
+        )
     best_trial = study.best_trial
     print(f"Best trial: {best_trial.number}")
     print(f"Best validation accuracy: {-best_trial.value:.6f}")
