@@ -5,3 +5,4 @@ __pycache__
 mlflow.db
 mlartifacts
 model_summary.txt
+mlruns
