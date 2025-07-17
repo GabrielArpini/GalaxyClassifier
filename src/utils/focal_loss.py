@@ -20,11 +20,19 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets):
         inputs = inputs.to(self.device)
         targets = targets.to(self.device)
+        eps = 1e-8
+
         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
         prob = F.softmax(inputs, dim=1)
         pt = prob.gather(1, targets.unsqueeze(1)).squeeze(1)
+
+        pt = torch.clamp(pt, eps, 1.0 - eps)
         focal_loss = ((1-pt)**self.gamma)*ce_loss
-        cb_focal = self.inverse_en[targets] * focal_loss 
         
+        # Focal loss was getting nan after ~82%, meaning that it needs the eps term and condition to fix it
+        if torch.isnan(focal_loss).any():
+            print("NaN detected in focal_loss")
+            return torch.tensor(0.0, requires_grad=True, device=self.device)
+        cb_focal = self.inverse_en[targets] * focal_loss
         return cb_focal.mean() if self.reduce else cb_focal
     

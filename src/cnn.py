@@ -10,11 +10,17 @@ class NeuralNet(nn.Module):
         nn.init.zeros_(self.conv1.bias)
 
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1)
+        
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1)
+        
         self.conv4 = nn.Conv2d(128,256, kernel_size=3, padding=1, stride=1)
+        
         self.conv5 = nn.Conv2d(256,512, kernel_size=3, padding=1, stride=1)
+        
         self.conv6 = nn.Conv2d(512,1024, kernel_size=3, padding=1, stride=1)
+        
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
         self.dropout = nn.Dropout(p=0.50)
         self.fc1 = nn.Linear(1024 * 4 * 4, 512)
         self.fc2 = nn.Linear(512, 256)

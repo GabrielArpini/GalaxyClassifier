@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torchmetrics
 from torchinfo import summary
 from torchvision import transforms
+from torchvision.transforms import v2
 
 from collections import Counter
 
@@ -112,7 +113,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             _, predicted = y_pred.max(1)
             accuracy.update(predicted, y_batch)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.001) #Gradient clipping 
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) #Gradient clipping 
             optimizer.step()
 
             total += y_batch.size(0)
@@ -154,6 +155,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             #break  
 
         if scheduler:
+            # Add param 'mean_valid_loss' if scheduler is Plateau
             scheduler.step(mean_valid_loss) 
         mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
         mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
@@ -182,16 +184,15 @@ def objective(trial):
     with mlflow.start_run(nested=True):
         #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
-          "epochs": 100, # Optuna trial used 30 epochs instead of 100
-          "learning_rate": 1e-3,  #0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+          "epochs": 150, # Optuna trial used 30 epochs instead of 100
+          "learning_rate": 0.001,  #0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
           "fl_beta": 0.9015792772207417,  #trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
-          "fl_gamma": 2.5010208252483297, #trial.suggest_float("fl_gamma", 1, 10),
-          "optimizer": "ADAMW",
+          "fl_gamma": 2.0, #trial.suggest_float("fl_gamma", 1, 10),
+          "optimizer": "RAdam",
         }
         mlflow.log_params(params)
-
         model = NeuralNet().to(device)
         loss = FocalLoss(
             beta= params["fl_beta"],
@@ -200,11 +201,19 @@ def objective(trial):
             reduce=True,
             device=device
         ).to(device)
+        # Try CE loss instead of FL
+        weights = torch.tensor([1.0 / s for s in num_samples_per_class], device=device)
+        weights = weights / weights.max()  # Normalize to cap weights
+        #loss = nn.CrossEntropyLoss(weight=weights)
         
         optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
- 
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-        
+        # This scheduler gets too slow when approaching local minima, even tho it can escape from it, the process is very slow
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, threshold=0.001,patience=5)
+
+        # Test another scheduler approach
+        #scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-4)
+
+         
         # Train model
         print("training model...")
         model, validation_accuracy =train_book(model, optimizer, loss, train_loader, n_epochs=params["epochs"],device=device,scheduler=scheduler)
@@ -264,43 +273,38 @@ labels_path =  root_path / 'data' / 'labels.npy'
 
 original_indices = np.arange(len(images))
 
-train_indices, temp_indices = train_test_split(
+train_indices, val_indices = train_test_split(
     original_indices, test_size=0.4, stratify=labels, random_state=42
 )
 
-val_indices, test_indices = train_test_split(
-    temp_indices, test_size=0.5, stratify=labels[temp_indices], random_state=42
-)
-
+assert len(set(train_indices).intersection(set(val_indices))) == 0, "Train and validation indices overlap!"
 
 # Create transformations for data augmentation
-train_transform = transforms.Compose([
-    transforms.CenterCrop((170, 240)),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=270),
-    transforms.ColorJitter(brightness=0.8, contrast=0.8),
-    transforms.Resize((256,256)), #Ensure default size
 
+train_transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.CenterCrop((170,240)),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.5),
+    v2.GaussianBlur(kernel_size=3),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(degrees=(0,270)),
+    transforms.Resize((256,256)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
+    transforms.Normalize(mean=0.5, std=0.5)
+])
 
-])
-train_transform = transforms.Compose([
-    transforms.ToPILImage(),  
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    transforms.ToTensor(),  
-    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-])
+
+
 val_transform = transforms.Compose([
     transforms.ToPILImage(),
+    transforms.CenterCrop((170,240)),
+    transforms.Resize((256,256)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    transforms.Normalize(mean=0.5, std=0.5)
 ])
-train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path, train_transform)
-test_dataset = LazyGalaxyDataset(test_indices,images_path,labels_path)
-valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path, val_transform)
+
+train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path, transform=train_transform)
+valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path, transform=val_transform)
 
 
 
@@ -311,8 +315,7 @@ num_samples_per_class = get_label_count(train_labels)
 batch_size = 64
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
+valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 
 img_example = next(iter(train_loader))[0]
 

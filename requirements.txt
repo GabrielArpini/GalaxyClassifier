@@ -11,3 +11,4 @@ notebook
 torchinfo
 pathlib
 optuna
+seaborn

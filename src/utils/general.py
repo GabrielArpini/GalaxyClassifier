@@ -53,14 +53,15 @@ class LazyGalaxyDataset(Dataset):
 
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
-        image = self.images[actual_idx] / 255.0
+        image = self.images[actual_idx]
         label = self.labels[actual_idx]
 
-        image_tensor = torch.from_numpy(image.astype(np.float32)).permute(2, 0, 1)
-        label_tensor = torch.tensor(label, dtype=torch.int64)
+        label = torch.tensor(label, dtype=torch.int64)
         if self.transform:
-            image_tensor = self.transform(image_tensor)
-        return image_tensor, label_tensor
+            image = self.transform(image)
+        else:
+            image = torch.from_numpy(image.astype(np.float32)).permute(2, 0, 1) / 255.0
+        return image, label
 
 
 def get_dataset(train_indices, test_indices, val_indices, images_path, labels_path):
