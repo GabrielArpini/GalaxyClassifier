@@ -31,6 +31,7 @@ import optuna
 optuna.logging.set_verbosity(optuna.logging.ERROR)
 
 import mlflow
+from mlflow import MlflowClient
 from mlflow.models.signature import infer_signature # to create custom infer_signature
 mlflow.set_tracking_uri("http://127.0.0.1:5000/")
 mlflow.set_experiment("galaxy-classifier-experiment")
@@ -190,15 +191,15 @@ def champion_callback(study, frozen_trial):
           print(f"Initial trial {frozen_trial.number} achieved value: {frozen_trial.value}")
 
 def objective(trial):
-    with mlflow.start_run(nested=True):
+    with mlflow.start_run(nested=True) as nested_run:
         #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
-          "epochs": 80, # Optuna trial used 30 epochs instead of 100
-          "learning_rate": 0.001,  #0.0006011513363910267, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+          "epochs": 1, # Optuna trial used 30 epochs instead of 100
+          "learning_rate": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
-          "fl_beta": 0.9015792772207417,  #trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
-          "fl_gamma": 2.0, #trial.suggest_float("fl_gamma", 1, 10),
+          "fl_beta": trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
+          "fl_gamma": trial.suggest_float("fl_gamma", 1, 10),
           "optimizer": "RAdam",
         }
         mlflow.log_params(params)
@@ -261,7 +262,7 @@ def objective(trial):
 
         model_info = mlflow.pytorch.log_model(
             pytorch_model=model,
-            artifact_path="cbfl_model",
+            name="cbfl_model",
             input_example=input_example_np,
             signature=signature,
             code_paths=code_paths 
@@ -282,23 +283,49 @@ def register_best_model(study, model_name="galaxy-classifier"):
     """
     best_trial = study.best_trial
     best_model_uri = best_trial.user_attrs.get("model_uri")
-    
-    if best_model_uri:
-        try:
-            best_model = mlflow.register_model(
-                model_uri=best_model_uri,
-                name=model_name,
-                description=f"Galaxy classifier - Best trial {best_trial.number}. "
-                          f"Validation accuracy: {-best_trial.value:.6f}. "
-                          f"Parameters: {best_trial.params}"
-            )
-            
-            print(f"Best model registered: {model_name} v{best_model.version}")
-            return best_model
-        except Exception as e:
-            print(f"Error registering best model: {e}")
-    else:
+    if not best_model_uri:
         print("No model URI found in best trial")
+        return None
+    
+    try:
+        client = MlflowClient()
+        
+        try:
+            client.get_registered_model(model_name)
+        except mlflow.exceptions.MlflowException:
+            client.create_registered_model(
+                name=model_name,
+                description="Galaxy classifier model trained with Optuna for hyperparameter optimization."
+            )
+        
+        
+        description = (
+            f"Galaxy classifier - Best trial {best_trial.number}. "
+            f"Validation accuracy: {-best_trial.value:.6f}. "
+            f"Parameters: {best_trial.params}"
+        )
+        
+    
+        best_model = client.create_model_version(
+            name=model_name,
+            source=best_model_uri,
+            run_id=best_trial.user_attrs.get("run_id"),
+            description=description
+        )
+        
+        
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="production",
+            version=best_model.version
+        )
+        
+        print(f"Best model registered: {model_name} v{best_model.version} with alias 'production'")
+        return best_model
+    except Exception as e:
+        print(f"Error roofing best model: {e}")
+        return None 
+    
 
 class_names = [
     "0 - Disturbed Galaxies",
@@ -381,17 +408,10 @@ weights = weights / weights.max()  # Normalize to cap weights
 with mlflow.start_run(nested=True) as run:
     study = optuna.create_study(direction="minimize")
     # Trials is 1 because i`ve already did 50 trials to find current value
-    study.optimize(objective, n_trials=1, callbacks=[champion_callback])    
+    study.optimize(objective, n_trials=3, callbacks=[champion_callback])    
     best_model_version = register_best_model(study)
     
-    if best_model_version:
-        client = MlflowClient()
-        client.transition_model_version_stage(
-            name="galaxy-classifier",
-            version=best_model_version.version,
-            stage="Production",
-            archive_existing_versions=True  
-        )
+    
     best_trial = study.best_trial
     print(f"Best trial: {best_trial.number}")
     print(f"Best validation accuracy: {-best_trial.value:.6f}")
