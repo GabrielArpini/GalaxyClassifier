@@ -1,5 +1,12 @@
 class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0.001):
+    """
+    Early stops the training if patience treshold is suprassed with the objective to optimize the time spent with optuna.
+    The min_delta values is the minimum acceptable value of difference between the current validation loss
+    and the best validation loss, for each time the current validation loss doesn't achieve the minimum
+    difference, a counter is increased, if the counter is bigger or equal to the patience, early stop becomes True
+    and the training stops.
+    """
+    def __init__(self, patience=5, min_delta=0.0001):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0

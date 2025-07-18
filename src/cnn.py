@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch
 
 class NeuralNet(nn.Module):
+    """ Convolutional Neural Network arquitecture. """
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1)

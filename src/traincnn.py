@@ -42,8 +42,17 @@ print(f"Pytorch version:{torch.__version__}")
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using device: {device}")
 def get_label_count(labels):
-  counts = np.unique(labels, return_counts=True)
-  return counts[1].tolist()
+    """
+    Gets the total number of each classification.
+    
+    Parameters:
+    labels(ndarray): numpy array with the labels.
+    
+    Returns:
+    List: Python list with the total count of each label.
+    """
+    counts = np.unique(labels, return_counts=True)
+    return counts[1].tolist()
 
 def conf_matrix_eval(model):
     model.eval()
@@ -262,13 +271,21 @@ def objective(trial):
         return -validation_accuracy
 
 def register_best_model(study, model_name="galaxy-classifier"):
-    """Register the best model from the study"""
+    """
+    Register the best model from the study.
+    Parameters:
+    study: Optuna optimization result.
+    model_name: The name to register the model in the model regstry of mlflow.
+    
+    Returns:
+    best_model: mlflow object with best model information.
+    """
     best_trial = study.best_trial
     best_model_uri = best_trial.user_attrs.get("model_uri")
     
     if best_model_uri:
         try:
-            model_version = mlflow.register_model(
+            best_model = mlflow.register_model(
                 model_uri=best_model_uri,
                 name=model_name,
                 description=f"Galaxy classifier - Best trial {best_trial.number}. "
@@ -276,8 +293,8 @@ def register_best_model(study, model_name="galaxy-classifier"):
                           f"Parameters: {best_trial.params}"
             )
             
-            print(f"Best model registered: {model_name} v{model_version.version}")
-            return model_version
+            print(f"Best model registered: {model_name} v{best_model.version}")
+            return best_model
         except Exception as e:
             print(f"Error registering best model: {e}")
     else:

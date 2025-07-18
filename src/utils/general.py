@@ -7,6 +7,15 @@ import numpy as np
 from pathlib import Path
 
 def get_project_root(marker: str = 'src'):
+    """
+    Get the root path of the project: ../GalaxyClassifier. Uses a marker to return the parent of the marker.
+
+    Args:
+    marker: A folder just bellow the root path.
+    
+    Returns:
+    parent(Path): The root path of the project based on the marker definition.
+    """
     path = Path(__file__).resolve()
     for parent in path.parents:
         if (parent / marker).exists():
@@ -17,9 +26,10 @@ def get_project_root(marker: str = 'src'):
 def get_data(marker='src'):
     """
     Downloads data if it doesn't exist, if it exists loads it in variables images and labels
+    and save them as .npy files in the data folder under the root path.
 
     Args:
-    marker(str): name of a file to get the path to.
+    marker(str): name of a folder the folder which this function is called to call get_project_root.
 
     Returns:
     images(ndarray): A numpy array with the images.
@@ -43,6 +53,11 @@ def get_data(marker='src'):
 
 
 class LazyGalaxyDataset(Dataset):
+    """
+    Creates the Dataset with the .npy files with galaxy ndarray and label ndarray.
+    It uses a lazy approach because my RAM (16 GB) can't load it all when splitting data and runing model.
+    It uses the indices and mmap_mode to read the data without loading the entire data with the DataLoaders.
+    """
     def __init__(self, indices, image_path, label_path, transform=None):
         self.indices = indices
         self.images = np.load(image_path, mmap_mode="r")
@@ -64,22 +79,6 @@ class LazyGalaxyDataset(Dataset):
         return image, label
 
 
-def get_dataset(train_indices, test_indices, val_indices, images_path, labels_path):
-    '''
-    Gets the dataset for training, testing, and validation.
-    Args:
-        train_indices (np.ndarray): Actual indices for training samples.
-        test_indices (np.ndarray): Actual indices for testing samples.
-        val_indices (np.ndarray): Actual indices for validation samples.
-    Returns:
-        tuple: Three datasets for training, testing, and validation.
-    '''
-    
-    train_dataset = LazyGalaxyDataset(train_indices, images_path, labels_path)
-    test_dataset = LazyGalaxyDataset(test_indices, images_path, labels_path)
-    valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path)
-    
-    return train_dataset, test_dataset, valid_dataset
 
 if __name__ == '__main__':
     get_data()
