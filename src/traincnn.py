@@ -55,37 +55,6 @@ def get_label_count(labels):
     counts = np.unique(labels, return_counts=True)
     return counts[1].tolist()
 
-def conf_matrix_eval(model):
-    model.eval()
-    metric = torchmetrics.classification.MulticlassConfusionMatrix(num_classes=10).to(device)
-
-    with torch.no_grad():
-        for X_batch, y_batch in valid_loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            y_pred_logits = model(X_batch)  # Raw logits [batch_size, 10]
-
-            # Convert logits to predicted class indices
-            _, y_pred_classes = torch.max(y_pred_logits, 1)
-
-            metric.update(y_pred_classes, y_batch)  
-
-    conf_matrix = metric.compute()
-
-    # Calculate precision, recall, and F1-score from the confusion matrix
-    for i, class_name in enumerate(class_names):
-        tp = conf_matrix[i, i].item()
-        fp = conf_matrix[:, i].sum().item() - tp
-        fn = conf_matrix[i, :].sum().item() - tp
-
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-
-        print(f"Metrics for {class_name}:")
-        print(f"  Precision: {precision:.4f}")
-        print(f"  Recall: {recall:.4f}")
-        print(f"  F1-score: {f1_score:.4f}")
-
 
 
 
@@ -96,7 +65,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
     val_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     train_accuracies = []
     train_losses = []   
-    #early_stopping = EarlyStopping(patience=5, min_delta=0.001) 
+    early_stopping = EarlyStopping(patience=15, min_delta=0.0005) 
     with open("model_summary.txt", "w") as f:
         f.write(str(summary(model, input_size=(batch_size, 3, 256, 256))))
     mlflow.log_artifact("model_summary.txt")
@@ -159,10 +128,10 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         mean_valid_loss = total_valid_loss / len(valid_loader)
         accuracy.reset()
         
-        #early_stopping(mean_valid_loss)
-        #if early_stopping.early_stop:
-            #print("Early stopping at epoch:", epoch)
-            #break  
+        early_stopping(mean_valid_loss)
+        if early_stopping.early_stop:
+            print("Early stopping at epoch:", epoch)
+            break  
 
         if scheduler:
             # Add param 'mean_valid_loss' if scheduler is Plateau
@@ -194,7 +163,7 @@ def objective(trial):
     with mlflow.start_run(nested=True) as nested_run:
         #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
         params = {
-          "epochs": 1, # Optuna trial used 30 epochs instead of 100
+          "epochs": 50, # Optuna trial used 30 epochs instead of 100
           "learning_rate": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
@@ -258,7 +227,7 @@ def objective(trial):
         # Create signature
         signature = infer_signature(input_example_np, output_np)
 
-        conf_matrix_eval(model)
+     
 
         model_info = mlflow.pytorch.log_model(
             pytorch_model=model,
@@ -393,8 +362,8 @@ num_samples_per_class = get_label_count(train_labels)
 
 batch_size = 64
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,num_workers=6,pin_memory=True)
+valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=6, pin_memory=True)
 
 img_example = next(iter(train_loader))[0]
 
@@ -408,7 +377,7 @@ weights = weights / weights.max()  # Normalize to cap weights
 with mlflow.start_run(nested=True) as run:
     study = optuna.create_study(direction="minimize")
     # Trials is 1 because i`ve already did 50 trials to find current value
-    study.optimize(objective, n_trials=3, callbacks=[champion_callback])    
+    study.optimize(objective, n_trials=30, callbacks=[champion_callback])    
     best_model_version = register_best_model(study)
     
     
