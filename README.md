@@ -120,16 +120,16 @@ RADAM is used as an optimizer, as it doesn't need to warm up the weights or tune
 # How to run
 First you need to start mlflow with:
 ```Bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db
+$ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 This will open the port 5000 for the UI of mlflow, where you will be able to see the experiment runs and model version, and also enable the python scripts to comunicate with the API.
 Now, you can run the `traincnn.py` script to start the training process, if you want to change the hyperparameters of the model or the ammount of runs of Optuna, you can change the file `hyperparameters.cfg` [TO IMPLEMENT].
 ```Bash
-python3 src/traincnn.py
+$ python3 src/traincnn.py
 ```
 The folder `notebooks` contains some analysis (for now a CAM image and confusion matrix) of the best model saved in the mlflow model registry, to run that you need to just start the jupyter notebook and run the cells:
 ```Bash
-jupyter notebook
+$ jupyter notebook
 ```
 
 # Citations
@@ -289,4 +289,9 @@ jupyter notebook
    year={2018},
    month=nov }
 ```
-astronn official github: https://github.com/henrysky/astroNN
+```bibtex
+@misc{astroNN,
+    author={Leung Henry and Bovy Jo},
+    url={https://github.com/henrysky/astroNN},
+}
+```
