@@ -92,7 +92,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             _, predicted = y_pred.max(1)
             accuracy.update(predicted, y_batch)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) #Gradient clipping 
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5) #Gradient clipping 
             optimizer.step()
 
             total += y_batch.size(0)
@@ -128,18 +128,19 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         mean_valid_loss = total_valid_loss / len(valid_loader)
         accuracy.reset()
         
-        early_stopping(mean_valid_loss)
-        if early_stopping.early_stop:
-            print("Early stopping at epoch:", epoch)
-            break  
+        #early_stopping(mean_valid_loss)
+        #if early_stopping.early_stop:
+            #print("Early stopping at epoch:", epoch)
+            #break  
 
         if scheduler:
             # Add param 'mean_valid_loss' if scheduler is Plateau
-            scheduler.step() 
-        mlflow.log_metric("train_loss", f"{mean_loss:.6f}",step=epoch)
-        mlflow.log_metric("train_accuracy",f"{epoch_accuracy:.6f}",step=epoch)
-        mlflow.log_metric("validation_accuracy",f"{val_acc_accuracy:.6f}",step=epoch)
-        mlflow.log_metric("validation_loss", f"{mean_valid_loss:.6f}", step=epoch)
+            scheduler.step(val_acc_accuracy.item()) 
+        mlflow.log_metric("train_loss", mean_loss, step=epoch)
+        mlflow.log_metric("train_accuracy", epoch_accuracy, step=epoch)
+        mlflow.log_metric("validation_accuracy", val_acc_accuracy.item(), step=epoch)
+        mlflow.log_metric("validation_loss", mean_valid_loss, step=epoch)
+
         print(f"Epoch {epoch + 1}/{n_epochs}, Loss: {mean_loss:.6f}, Train Accuracy: {epoch_accuracy:.6f}, Validation Loss: {mean_valid_loss:.6f} Validation Accuracy: {val_acc_accuracy:.6f}")
     return model, val_acc_accuracy
 def champion_callback(study, frozen_trial):
@@ -161,47 +162,52 @@ def champion_callback(study, frozen_trial):
 
 def objective(trial):
     with mlflow.start_run(nested=True) as nested_run:
-        #Best parameters: {'lr': 0.0006011513363910267, 'fl_beta': 0.9015792772207417, 'fl_gamma': 2.5010208252483297} optuna result 100 trials
+        #{'lr': 0.0004138916207801621, 'fl_beta': 0.9025305577486171, 'fl_gamma': 1.000329511736484} optuna result 30 trials
         params = {
-          "epochs": 50, # Optuna trial used 30 epochs instead of 100
-          "learning_rate": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+          "epochs": 300, # Optuna trial used 30 epochs instead of 100
+          "learning_rate": 0.0004, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
-          "fl_beta": trial.suggest_float("fl_beta", 0.9, 0.9999, log=True),
-          "fl_gamma": trial.suggest_float("fl_gamma", 1, 10),
+          "fl_beta": 0.995, #trial.suggest_categorical("fl_beta",[0.9,0.99,0.999, 0.9999]),
+          "fl_gamma": 1.5, #trial.suggest_float("fl_gamma", 1, 5),
           "optimizer": "RAdam",
         }
         mlflow.log_params(params)
         model = NeuralNet().to(device)
-        loss = FocalLoss(
-            beta= params["fl_beta"],
-            gamma=params["fl_gamma"],
-            samples_per_class=num_samples_per_class,
-            reduce=True,
-            device=device
-        ).to(device)
+        #loss = FocalLoss(
+         #   beta= params["fl_beta"],
+         #   gamma=params["fl_gamma"],
+         #   samples_per_class=num_samples_per_class,
+         #   reduce=True,
+         #   device=device
+        #).to(device)
         # Try CE loss instead of FL
-        weights = torch.tensor([1.0 / s for s in num_samples_per_class], device=device)
-        weights = weights / weights.max()  # Normalize to cap weights
-        #loss = nn.CrossEntropyLoss(weight=weights)
         
-        optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
+        total_samples = sum(num_samples_per_class)
+        weights = torch.tensor([
+            total_samples / (len(num_samples_per_class) * s) 
+            for s in num_samples_per_class
+        ], device=device)
+        weights = weights / weights.sum() * len(weights)
+        loss = nn.CrossEntropyLoss(weight=weights)
+        
+        #optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
+        optimizer = torch.optim.AdamW(model.parameters(),lr=params["learning_rate"],weight_decay=1e-4)
         # This scheduler gets too slow when approaching local minima, even tho it can escape from it, the process is very slow
-        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, threshold=0.001,patience=5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.7, threshold=0.01,patience=7,min_lr=1e-7)
 
         # Test another scheduler approach
-        #scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-4)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-4)
 
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=0.01,                    
-            steps_per_epoch=len(train_loader),
-            epochs=params["epochs"],
-            pct_start=0.3,                  
-            anneal_strategy='cos',
-            div_factor=10,                  
-            final_div_factor=100        
-        )
+        #scheduler = torch.optim.lr_scheduler.OneCycleLR(
+         #   optimizer,
+         #   max_lr=params["learning_rate"],                    
+         #   steps_per_epoch=len(train_loader),
+         #   epochs=params["epochs"],
+         #   pct_start=0.3,                  
+         #   div_factor=25,                  
+         #   final_div_factor=1000        
+        #)
 
 
         # Train model
@@ -242,23 +248,26 @@ def objective(trial):
 
 def register_best_model(study, model_name="galaxy-classifier"):
     """
-    Register the best model from the study.
+    Register the best model from the study in the MLflow model registry.
+
     Parameters:
     study: Optuna optimization result.
-    model_name: The name to register the model in the model regstry of mlflow.
-    
+    model_name: The name to register the model in the MLflow model registry.
+
     Returns:
-    best_model: mlflow object with best model information.
+    best_model: MLflow ModelVersion object with best model information, or None if registration fails or is not needed.
     """
+    # Get the best trial from Optuna
     best_trial = study.best_trial
     best_model_uri = best_trial.user_attrs.get("model_uri")
     if not best_model_uri:
         print("No model URI found in best trial")
         return None
-    
+
     try:
         client = MlflowClient()
-        
+
+        # Ensure the model is registered in the registry
         try:
             client.get_registered_model(model_name)
         except mlflow.exceptions.MlflowException:
@@ -266,35 +275,60 @@ def register_best_model(study, model_name="galaxy-classifier"):
                 name=model_name,
                 description="Galaxy classifier model trained with Optuna for hyperparameter optimization."
             )
-        
-        
+
+        # Prepare description for the new model version
         description = (
             f"Galaxy classifier - Best trial {best_trial.number}. "
             f"Validation accuracy: {-best_trial.value:.6f}. "
             f"Parameters: {best_trial.params}"
         )
-        
-    
-        best_model = client.create_model_version(
-            name=model_name,
-            source=best_model_uri,
-            run_id=best_trial.user_attrs.get("run_id"),
-            description=description
-        )
-        
-        
-        client.set_registered_model_alias(
-            name=model_name,
-            alias="production",
-            version=best_model.version
-        )
-        
-        print(f"Best model registered: {model_name} v{best_model.version} with alias 'production'")
-        return best_model
+
+        # Get current accuracy (negated because Optuna minimizes objective)
+        current_accuracy = -best_trial.value
+
+        # Search for the latest model version with the "production" alias
+        versions = client.search_model_versions(f"name='{model_name}'")
+        production_version = None
+        for version in versions:
+            if "production" in client.get_model_version(model_name, version.version).aliases:
+                production_version = version
+                break
+
+        # Compare with the existing production model's accuracy
+        best_accuracy = None
+        if production_version:
+            run_id = production_version.run_id
+            run = client.get_run(run_id)
+            best_accuracy = run.data.metrics.get("validation_accuracy")
+
+        # Register the new model if no production version exists or if it has better accuracy
+        if best_accuracy is None or current_accuracy > best_accuracy:
+            best_model = client.create_model_version(
+                name=model_name,
+                source=best_model_uri,
+                run_id=best_trial.user_attrs.get("run_id"),
+                description=description
+            )
+
+            # Set the "production" alias for the new model version
+            client.set_registered_model_alias(
+                name=model_name,
+                alias="production",
+                version=best_model.version
+            )
+
+            print(f"Best model registered: {model_name} v{best_model.version} with alias 'production'")
+            return best_model
+        else:
+            print(f"Current model (accuracy: {current_accuracy:.6f}) not better than existing production model (accuracy: {best_accuracy:.6f})")
+            return None
+
     except Exception as e:
-        print(f"Error roofing best model: {e}")
-        return None 
-    
+        print(f"Error registering best model: {e}")
+        return None
+
+
+
 
 class_names = [
     "0 - Disturbed Galaxies",
@@ -322,7 +356,7 @@ labels_path =  root_path / 'data' / 'labels.npy'
 original_indices = np.arange(len(images))
 
 train_indices, val_indices = train_test_split(
-    original_indices, test_size=0.4, stratify=labels, random_state=42
+    original_indices, test_size=0.35, stratify=labels, random_state=42
 )
 
 assert len(set(train_indices).intersection(set(val_indices))) == 0, "Train and validation indices overlap!"
@@ -331,21 +365,19 @@ assert len(set(train_indices).intersection(set(val_indices))) == 0, "Train and v
 
 train_transform = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.CenterCrop((170,240)),
-    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.5),
-    v2.GaussianBlur(kernel_size=3),
+    #transforms.CenterCrop((200,200)),
+    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.15),
+    transforms.RandomAffine(degrees=(-30,30), translate=(0.05,0.05), shear=10),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=(0,270)),
+    transforms.RandomRotation(degrees=(0,45)),
     transforms.Resize((256,256)),
     transforms.ToTensor(),
     transforms.Normalize(mean=0.5, std=0.5)
 ])
 
 
-
 val_transform = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.CenterCrop((170,240)),
     transforms.Resize((256,256)),
     transforms.ToTensor(),
     transforms.Normalize(mean=0.5, std=0.5)
@@ -376,8 +408,8 @@ weights = weights / weights.max()  # Normalize to cap weights
 # Main training loop with optuna
 with mlflow.start_run(nested=True) as run:
     study = optuna.create_study(direction="minimize")
-    # Trials is 1 because i`ve already did 50 trials to find current value
-    study.optimize(objective, n_trials=30, callbacks=[champion_callback])    
+    # Trials is 1 because i`ve already did 30 trials to find current value
+    study.optimize(objective, n_trials=1, callbacks=[champion_callback])    
     best_model_version = register_best_model(study)
     
     
