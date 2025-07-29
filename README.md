@@ -118,7 +118,12 @@ train_transform = transforms.Compose([
 RADAM is used as an optimizer, as it doesn't need to warm up the weights or tune hyperparameters, it is used with a OneCycleLR scheduler, allowing the model to escape local minima (Huge problem that i had, and probably still have in some magnitude).
 
 # How to run
-First you need to start mlflow with:
+First, clone the repository and cd into it:
+```Bash
+git clone https://github.com/GabrielArpini/GalaxyClassifier.git
+cd GalaxyClassifier
+```
+Then you need to start mlflow with:
 ```Bash
 $ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
