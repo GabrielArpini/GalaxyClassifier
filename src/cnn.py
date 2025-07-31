@@ -26,9 +26,11 @@ class NeuralNet(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.dropout = nn.Dropout(p=0.2)
+        self.dropout2 = nn.Dropout(p=0.1)
         self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Linear(512, 128)
-        self.fc2 = nn.Linear(128,10)
+        self.fc1 = nn.Linear(512, 256)
+        self.fc2 = nn.Linear(256,128)
+        self.fc3 = nn.Linear(128,10)
         
         # Apply kaiming init
         for m in self.modules():
@@ -37,21 +39,24 @@ class NeuralNet(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)        
     def forward(self, x):
-        x = F.relu(self.conv1(x))  # -> (32, 256, 256)
+        x = self.bn1(F.relu(self.conv1(x)))  # -> (32, 256, 256)
         x = self.pool(x)  # -> (32, 128, 128)
-        x = F.relu(self.conv2(x))  # -> (64, 128, 128)
+        x = self.bn2(F.relu(self.conv2(x)))  # -> (64, 128, 128)
         x = self.pool(x)  # -> (64, 64, 64)
-        x = F.relu(self.conv3(x))  # -> (128, 64, 64)
+        x = self.bn3(F.relu(self.conv3(x)))  # -> (128, 64, 64)
         x = self.pool(x)  # -> (128, 32, 32)
-        x = F.relu(self.conv4(x)) # -> (256, 32, 32)
+        x = self.bn4(F.relu(self.conv4(x))) # -> (256, 32, 32)
         x = self.pool(x) # -> (256, 16, 16)
-        x = F.relu(self.conv5(x)) # -> (512, 16, 16)
+        x = self.bn5(F.relu(self.conv5(x))) # -> (512, 16, 16)
         x = self.pool(x) # -> (512, 8, 8)
         x = self.global_avg_pool(x) # -> (512, 1, 1)
         x = torch.flatten(x, 1) # -> (512)
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
-        x = self.fc2(x)
+        x = F.relu(self.fc2(x))
+        x = self.dropout2(x)
+        x = self.fc3(x)
+        
 
         
         return x

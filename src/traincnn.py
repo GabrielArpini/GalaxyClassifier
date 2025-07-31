@@ -127,6 +127,13 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         val_acc_accuracy = val_accuracy.compute()
         mean_valid_loss = total_valid_loss / len(valid_loader)
         accuracy.reset()
+
+        total_grad_norm = 0
+        for p in model.parameters():
+            if p.grad is not None:
+                total_grad_norm += p.grad.data.norm(2).item() ** 2
+        total_grad_norm = total_grad_norm ** 0.5
+        print(f"Gradient norm: {total_grad_norm:.4f}")
         
         #early_stopping(mean_valid_loss)
         #if early_stopping.early_stop:
@@ -135,7 +142,10 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
 
         if scheduler:
             # Add param 'mean_valid_loss' if scheduler is Plateau
-            scheduler.step(val_acc_accuracy.item()) 
+            scheduler.step()
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}, LR: {current_lr:.2e}")
+        mlflow.log_metric("learning_rate", current_lr, step=epoch)
         mlflow.log_metric("train_loss", mean_loss, step=epoch)
         mlflow.log_metric("train_accuracy", epoch_accuracy, step=epoch)
         mlflow.log_metric("validation_accuracy", val_acc_accuracy.item(), step=epoch)
@@ -164,49 +174,50 @@ def objective(trial):
     with mlflow.start_run(nested=True) as nested_run:
         #{'lr': 0.0004138916207801621, 'fl_beta': 0.9025305577486171, 'fl_gamma': 1.000329511736484} optuna result 30 trials
         params = {
-          "epochs": 300, # Optuna trial used 30 epochs instead of 100
+          "epochs": 100, # Optuna trial used 30 epochs instead of 100
           "learning_rate": 0.0004, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
-          "fl_beta": 0.995, #trial.suggest_categorical("fl_beta",[0.9,0.99,0.999, 0.9999]),
-          "fl_gamma": 1.5, #trial.suggest_float("fl_gamma", 1, 5),
+          "fl_beta": 0.99, #trial.suggest_categorical("fl_beta",[0.9,0.99,0.999, 0.9999]),
+          "fl_gamma": 2., #trial.suggest_float("fl_gamma", 1, 5),
           "optimizer": "RAdam",
         }
         mlflow.log_params(params)
         model = NeuralNet().to(device)
-        #loss = FocalLoss(
-         #   beta= params["fl_beta"],
-         #   gamma=params["fl_gamma"],
-         #   samples_per_class=num_samples_per_class,
-         #   reduce=True,
-         #   device=device
-        #).to(device)
+        loss = FocalLoss(
+            beta= params["fl_beta"],
+            gamma=params["fl_gamma"],
+            samples_per_class=num_samples_per_class,
+            reduce=True,
+            device=device
+        ).to(device)
         # Try CE loss instead of FL
         
-        total_samples = sum(num_samples_per_class)
-        weights = torch.tensor([
-            total_samples / (len(num_samples_per_class) * s) 
-            for s in num_samples_per_class
-        ], device=device)
-        weights = weights / weights.sum() * len(weights)
-        loss = nn.CrossEntropyLoss(weight=weights)
+        #total_samples = sum(num_samples_per_class)
+        #weights = torch.tensor([
+        #    total_samples / (len(num_samples_per_class) * s) 
+        #    for s in num_samples_per_class
+        #], device=device)
+        #weights = weights / weights.sum() * len(weights)
+        #loss = nn.CrossEntropyLoss(weight=weights)
         
         #optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
-        optimizer = torch.optim.AdamW(model.parameters(),lr=params["learning_rate"],weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(model.parameters(),lr=params["learning_rate"],weight_decay=1e-4, betas=(0.9,0.999))
         # This scheduler gets too slow when approaching local minima, even tho it can escape from it, the process is very slow
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.7, threshold=0.01,patience=7,min_lr=1e-7)
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, threshold=0.1,patience=5,min_lr=1e-6)
 
         # Test another scheduler approach
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=1, eta_min=1e-5)
 
         #scheduler = torch.optim.lr_scheduler.OneCycleLR(
          #   optimizer,
-         #   max_lr=params["learning_rate"],                    
-         #   steps_per_epoch=len(train_loader),
-         #   epochs=params["epochs"],
-         #   pct_start=0.3,                  
-         #   div_factor=25,                  
-         #   final_div_factor=1000        
+          #  max_lr=1e-3,                    
+           # steps_per_epoch=len(train_loader),
+            #epochs=params["epochs"],
+            #pct_start=0.3,
+            #div_factor=10,
+            #final_div_factor=100,
+            #anneal_strategy='cos'      
         #)
 
 
@@ -365,22 +376,21 @@ assert len(set(train_indices).intersection(set(val_indices))) == 0, "Train and v
 
 train_transform = transforms.Compose([
     transforms.ToPILImage(),
-    #transforms.CenterCrop((200,200)),
-    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.15),
-    transforms.RandomAffine(degrees=(-30,30), translate=(0.05,0.05), shear=10),
+    transforms.RandomResizedCrop(256, scale=(0.8, 1.0)),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), shear=5),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=(0,45)),
-    transforms.Resize((256,256)),
+    transforms.RandomRotation(degrees=15),
+    transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=0.5, std=0.5)
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet stats
 ])
-
 
 val_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((256,256)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=0.5, std=0.5)
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
 train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path, transform=train_transform)
