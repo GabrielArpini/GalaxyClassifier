@@ -65,10 +65,17 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
     val_accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=10).to(device)
     train_accuracies = []
     train_losses = []   
-    early_stopping = EarlyStopping(patience=15, min_delta=0.0005) 
+    early_stopping = EarlyStopping(patience=15, min_delta=0.0005)
+
+   
+    
+    image_input = torch.randn(batch_size, 3, 256, 256).to(device)
+    symmetry_input = torch.randn(batch_size).to(device)
+    summary_str = summary(model, input_data=(image_input, symmetry_input), verbose=1)
     with open("model_summary.txt", "w") as f:
-        f.write(str(summary(model, input_size=(batch_size, 3, 256, 256))))
+        f.write(str(summary_str))
     mlflow.log_artifact("model_summary.txt")
+    
     
     for epoch in range(n_epochs):
         model.train()
@@ -77,10 +84,10 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         accuracy.reset()
         total = 0
             
-        for batch_idx, (X_batch, y_batch) in enumerate(train_loader):
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+        for batch_idx, (X_batch, y_batch, symmetry_batch) in enumerate(train_loader):
+            X_batch, y_batch, symmetry_batch = X_batch.to(device), y_batch.to(device), symmetry_batch.to(device)
             optimizer.zero_grad()
-            y_pred = model(X_batch)
+            y_pred = model(X_batch, symmetry_batch)
 
             # Ensure y_batch is integer indices
             if y_batch.dtype != torch.long:
@@ -92,7 +99,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             _, predicted = y_pred.max(1)
             accuracy.update(predicted, y_batch)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5) #Gradient clipping 
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.) #Gradient clipping 
             optimizer.step()
 
             total += y_batch.size(0)
@@ -113,9 +120,9 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
         model.eval()
         val_accuracy.reset()
         with torch.no_grad():
-            for X_batch, y_batch in valid_loader:
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                y_pred = model(X_batch)
+            for X_batch, y_batch,symmetry_batch in valid_loader:
+                X_batch, y_batch, symmetry_batch = X_batch.to(device), y_batch.to(device), symmetry_batch.to(device)
+                y_pred = model(X_batch, symmetry_batch)
                 valid_loss = criterion(y_pred, y_batch)
                 total_valid_loss += valid_loss.item()
 
@@ -145,6 +152,7 @@ def train_book(model, optimizer, criterion, train_loader, n_epochs, device,sched
             scheduler.step()
         current_lr = optimizer.param_groups[0]['lr']
         print(f"Epoch {epoch+1}, LR: {current_lr:.2e}")
+        mlflow.log_metric("gradient_norm",total_grad_norm, step=epoch)
         mlflow.log_metric("learning_rate", current_lr, step=epoch)
         mlflow.log_metric("train_loss", mean_loss, step=epoch)
         mlflow.log_metric("train_accuracy", epoch_accuracy, step=epoch)
@@ -178,7 +186,7 @@ def objective(trial):
           "learning_rate": 0.0004, #trial.suggest_float("lr", 1e-4, 1e-1, log=True),
           "batch_size": 64,
           "loss function": "Class Balanced Focal Loss",
-          "fl_beta": 0.99, #trial.suggest_categorical("fl_beta",[0.9,0.99,0.999, 0.9999]),
+          "fl_beta": 0.999, #trial.suggest_categorical("fl_beta",[0.9,0.99,0.999, 0.9999]),
           "fl_gamma": 2., #trial.suggest_float("fl_gamma", 1, 5),
           "optimizer": "RAdam",
         }
@@ -202,12 +210,12 @@ def objective(trial):
         #loss = nn.CrossEntropyLoss(weight=weights)
         
         #optimizer = torch.optim.RAdam(model.parameters(), lr=params["learning_rate"])
-        optimizer = torch.optim.AdamW(model.parameters(),lr=params["learning_rate"],weight_decay=1e-4, betas=(0.9,0.999))
+        optimizer = torch.optim.AdamW(model.parameters(),lr=params["learning_rate"],weight_decay=1e-3, betas=(0.9,0.999))
         # This scheduler gets too slow when approaching local minima, even tho it can escape from it, the process is very slow
         #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, threshold=0.1,patience=5,min_lr=1e-6)
 
         # Test another scheduler approach
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=1, eta_min=1e-5)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-10)
 
         #scheduler = torch.optim.lr_scheduler.OneCycleLR(
          #   optimizer,
@@ -230,8 +238,10 @@ def objective(trial):
         model.eval()
         with torch.no_grad():
             # Ensure img_example is a single example, not a batch
+            img_example,_, symmetries = next(iter(train_loader))
             single_img_example = img_example[0:1].to(device)  # Shape: [1, 3, 256, 256]
-            output = model(single_img_example)
+            single_symmetry_example = symmetries[0:1].to(device)
+            output = model(single_img_example,single_symmetry_example)
         
         # Convert to NumPy arrays for MLflow
         input_example_np = single_img_example.cpu().detach().numpy()  # Shape: [1, 3, 256, 256]
@@ -354,23 +364,20 @@ class_names = [
     "9 - Edge-on Galaxies with Bulge"
 ]
 root_path = g.get_project_root()
+dict_indices = g.get_splits(root_path,splits=["train","valid"])
+train_indices = dict_indices["train"]
+val_indices = dict_indices["valid"]
 
+# data path
+images_path = root_path / "data" / "images_cleaned.npy"
+labels_path = root_path / "data" / "labels.npy"
+symmetry_path = root_path / "data" / "assymetries.npy"
+
+# For mlflow
 code_paths = [
             str(root_path / "src" / "utils" / "focal_loss.py"),
             str(root_path / "src" / "cnn.py")
         ]
-
-images,labels = g.get_data()
-images_path =  root_path / 'data' / 'images.npy'
-labels_path =  root_path / 'data' / 'labels.npy'
-
-original_indices = np.arange(len(images))
-
-train_indices, val_indices = train_test_split(
-    original_indices, test_size=0.35, stratify=labels, random_state=42
-)
-
-assert len(set(train_indices).intersection(set(val_indices))) == 0, "Train and validation indices overlap!"
 
 # Create transformations for data augmentation
 
@@ -380,7 +387,7 @@ train_transform = transforms.Compose([
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), shear=5),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
+    transforms.RandomRotation(degrees=30),
     transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet stats
@@ -393,12 +400,12 @@ val_transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path, transform=train_transform)
-valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path, transform=val_transform)
+train_dataset = LazyGalaxyDataset(train_indices,images_path,labels_path,symmetry_path, transform=train_transform)
+valid_dataset = LazyGalaxyDataset(val_indices, images_path, labels_path,symmetry_path, transform=val_transform)
 
 
 
-
+_,labels = g.get_data()
 train_labels = labels[train_indices]
 num_samples_per_class = get_label_count(train_labels)
 

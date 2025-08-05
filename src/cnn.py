@@ -6,29 +6,23 @@ class NeuralNet(nn.Module):
     """ Convolutional Neural Network arquitecture. """
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        nn.init.kaiming_uniform_(self.conv1.weight)
-        nn.init.zeros_(self.conv1.bias)
-
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1)
-        self.bn2 = nn.BatchNorm2d(64)
+        self.layer1 = self.convblock(3,32)
+        self.layer2 = self.convblock(32,64)
+        self.layer3 = self.convblock(64,128)
+        self.layer4 = self.convblock(128,256)
+        self.layer5 = self.convblock(256,512)
         
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1, stride=1)
-        self.bn3 = nn.BatchNorm2d(128)
-        
-        self.conv4 = nn.Conv2d(128,256, kernel_size=3, padding=1, stride=1)
-        self.bn4 = nn.BatchNorm2d(256)
-        
-        self.conv5 = nn.Conv2d(256,512, kernel_size=3, padding=1, stride=1)
-        self.bn5 = nn.BatchNorm2d(512)
-
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.dropout = nn.Dropout(p=0.2)
-        self.dropout2 = nn.Dropout(p=0.1)
-        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Linear(512, 256)
+        self.symmetry_mlp = nn.Sequential(
+            nn.Linear(1, 32),  
+            nn.ReLU(),
+            nn.Linear(32, 16),  
+            nn.ReLU()
+        )
+    
+        self.dropout = nn.Dropout(p=0.3)
+        self.dropout2 = nn.Dropout(p=0.15)
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1,1))
+        self.fc1 = nn.Linear(512 + 16, 256) # + 16 from mlp
         self.fc2 = nn.Linear(256,128)
         self.fc3 = nn.Linear(128,10)
         
@@ -38,25 +32,34 @@ class NeuralNet(nn.Module):
                 nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)        
-    def forward(self, x):
-        x = self.bn1(F.relu(self.conv1(x)))  # -> (32, 256, 256)
-        x = self.pool(x)  # -> (32, 128, 128)
-        x = self.bn2(F.relu(self.conv2(x)))  # -> (64, 128, 128)
-        x = self.pool(x)  # -> (64, 64, 64)
-        x = self.bn3(F.relu(self.conv3(x)))  # -> (128, 64, 64)
-        x = self.pool(x)  # -> (128, 32, 32)
-        x = self.bn4(F.relu(self.conv4(x))) # -> (256, 32, 32)
-        x = self.pool(x) # -> (256, 16, 16)
-        x = self.bn5(F.relu(self.conv5(x))) # -> (512, 16, 16)
-        x = self.pool(x) # -> (512, 8, 8)
+    def forward(self, x, symmetry):
+        x = self.layer1(x) # -> (32,256,256)
+        x = self.layer2(x) # -> (64,128,128)
+        x = self.layer3(x) # -> (128,64,64)
+        x = self.layer4(x) # -> (256,32,32)
+        x = self.layer5(x) # -> (512,16,16)
+
+
         x = self.global_avg_pool(x) # -> (512, 1, 1)
         x = torch.flatten(x, 1) # -> (512)
+
+        # Run symmetry MLP
+        sym_features = self.symmetry_mlp(symmetry.unsqueeze(1))
+        x = torch.cat((x, sym_features), dim=1)
+
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
         x = F.relu(self.fc2(x))
         x = self.dropout2(x)
         x = self.fc3(x)
-        
-
-        
         return x
+
+    def convblock(self, in_channels,out_channels,kernel_size=3,padding=1,pool_size=2):
+        return nn.Sequential(
+            nn.Conv2d(in_channels,out_channels,kernel_size=kernel_size, padding=padding),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=pool_size)
+        )
+
+
