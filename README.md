@@ -13,6 +13,7 @@ GPU: RTX 2060 6GB <br>
 CPU: Ryzen 5 5600 <br>
 RAM: 2x8GB DDR4 <br>
 OS: Ubuntu 24.04.2 LTS <br>
+Pyton 3.11 
 
 
 ## Dataset
@@ -128,7 +129,8 @@ Then you need to start mlflow with:
 $ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 This will open the port 5000 for the UI of mlflow, where you will be able to see the experiment runs and model version, and also enable the python scripts to comunicate with the API.
-Now, you can run the `traincnn.py` script to start the training process, if you want to change the hyperparameters of the model or the ammount of runs of Optuna, you can change the file `hyperparameters.cfg` [TO IMPLEMENT].
+Now, you can run the `traincnn.py` script to start the training process, you can tweak the training variables inside the `traincnn.py` file.
+Before running the script make sure that you have gcc-fortran installend, since escnn uses it.
 ```Bash
 $ python3 src/traincnn.py
 ```

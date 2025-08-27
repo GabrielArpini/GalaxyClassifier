@@ -6,3 +6,4 @@ mlflow.db
 mlartifacts
 model_summary.txt
 mlruns
+venv311

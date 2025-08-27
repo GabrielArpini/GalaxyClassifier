@@ -68,6 +68,7 @@ def get_data(marker='src',cleaned=True):
         os.makedirs(path, exist_ok=True)
         np.save(images_path, images)
         np.save(labels_path, labels)
+        
     
     return images, labels
 
@@ -159,22 +160,29 @@ class LazyGalaxyDataset(Dataset):
         self.transform = transform
     def __len__(self):
         return len(self.indices)
-
     def __getitem__(self, idx):
         actual_idx = self.indices[idx]
-        image = self.images[actual_idx]
+
+        # FIX: Convert the memmap slice to a standard numpy array
+        image = np.array(self.images[actual_idx])
+
         label = self.labels[actual_idx]
         symmetry = self.symmetries[actual_idx]
 
         label = torch.tensor(label, dtype=torch.int64)
         symmetry = torch.tensor(symmetry, dtype=torch.float32)
+
         if len(image.shape) == 3 and image.shape[0] <= 4:
             image = image.transpose(1, 2, 0)
+
+
         if self.transform:
             image = self.transform(image)
         else:
             image = torch.from_numpy(image.astype(np.float32)).permute(2, 0, 1) / 255.0
-        return image, label, symmetry
+    return image, label, symmetry
+
+   
 
 
 

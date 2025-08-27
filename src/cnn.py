@@ -1,140 +1,173 @@
-#from torch import nn
-import torch.nn.functional as F
+
+
+
+
+
 import torch
+import torch.nn.functional as F
 from escnn import gspaces
 from escnn import nn
 
+
 class NeuralNet(torch.nn.Module):
-    """Equivariant CNN implementation."""
+    """Equivariant CNN """
+    
     def __init__(self, n_classes=10):
         super(NeuralNet, self).__init__()
 
-        # Create Group action
-        self.r2_act = gspaces.rot2dOnR2(N=8) # 8 rotations
+        # Group action 
+        self.r2_act = gspaces.rot2dOnR2(N=4)  # 4 folds 
 
-        # Create input type
+        # Input type: RGB image (3 channels, trivial representation)
         in_type = nn.FieldType(self.r2_act, 3*[self.r2_act.trivial_repr])
         self.input_type = in_type
         
-        # Create conv1 
-        out_type = nn.FieldType(self.r2_act, 32*[self.r2_act.trivial_repr])
+        # mixed representations
+        out_type = nn.FieldType(self.r2_act, 
+                               4*[self.r2_act.trivial_repr] + 
+                               4*[self.r2_act.regular_repr])  
         self.block1 = nn.SequentialModule(
             nn.MaskModule(in_type, 256, margin=1),
             nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
             nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
+            nn.ReLU(out_type, inplace=True),
+            nn.FieldDropout(out_type, p=0.1)
         )
 
-        # Create conv2 
-        # Uses the old out_type as in_type for this
+        
         in_type = self.block1.out_type
-        out_type = nn.FieldType(self.r2_act, 64*[self.r2_act.trivial_repr])
+        out_type = nn.FieldType(self.r2_act, 
+                               8*[self.r2_act.trivial_repr] + 
+                               8*[self.r2_act.regular_repr])  # 16 total
         self.block2 = nn.SequentialModule(
             nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
             nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
+            nn.ReLU(out_type, inplace=True),
+            nn.FieldDropout(out_type, p=0.1)
         )
-        # Create first pooling layer
-
+        
+        # Early pooling 
         self.pool1 = nn.SequentialModule(
             nn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
         )
 
-        # Conv3
         in_type = self.block2.out_type
-        out_type = nn.FieldType(self.r2_act, 96*[self.r2_act.trivial_repr]) 
+        out_type = nn.FieldType(self.r2_act, 
+                               12*[self.r2_act.trivial_repr] + 
+                               12*[self.r2_act.regular_repr])  # 24 
         self.block3 = nn.SequentialModule(
             nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
             nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
+            nn.ReLU(out_type, inplace=True),
+            nn.FieldDropout(out_type, p=0.15)
         )
 
-        # Conv4
+    
         in_type = self.block3.out_type
-        out_type = nn.FieldType(self.r2_act, 128*[self.r2_act.trivial_repr])
+        out_type = nn.FieldType(self.r2_act, 
+                               16*[self.r2_act.trivial_repr] + 
+                               16*[self.r2_act.regular_repr])  # 32 
         self.block4 = nn.SequentialModule(
             nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
             nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
+            nn.ReLU(out_type, inplace=True),
+            nn.FieldDropout(out_type, p=0.15)
         )
+        
+        # Second pooling
         self.pool2 = nn.SequentialModule(
             nn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
         )
 
-        # Conv5
+        
         in_type = self.block4.out_type
-        out_type = nn.FieldType(self.r2_act, 160*[self.r2_act.trivial_repr])
+        out_type = nn.FieldType(self.r2_act, 
+                               20*[self.r2_act.trivial_repr] + 
+                               20*[self.r2_act.regular_repr])  # 40 total
         self.block5 = nn.SequentialModule(
             nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
             nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
+            nn.ReLU(out_type, inplace=True),
+            nn.FieldDropout(out_type, p=0.2)
         )
-
-        # Conv6 
-        in_type = self.block5.out_type
-        out_type = nn.FieldType(self.r2_act, 128*[self.r2_act.trivial_repr])
-        self.block6 = nn.SequentialModule(
-            nn.R2Conv(in_type, out_type, kernel_size=3, padding=1, bias=False),
-            nn.InnerBatchNorm(out_type),
-            nn.ReLU(out_type, inplace=True)
-        ) 
-        self.pool3 = nn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=1, padding=0)
+        
+        # spatial pooling
+        self.pool3 = nn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2, padding=1)
+        
+        # Group pooling to make features rotationally invariant
         self.gpool = nn.GroupPooling(out_type)
         
-        # number of output channels
-        c = self.gpool.out_type.size
-        self.global_pool = torch.nn.AdaptiveAvgPool2d((1, 1)) # fixes RuntimeError: mat1 and mat2 shapes cannot be multiplied (32x460800 and 128x128) 
-        # Fully Connected
-        self.fully_net = torch.nn.Sequential(
-            torch.nn.Linear(c, 128),
-            torch.nn.BatchNorm1d(128),
-            torch.nn.ELU(inplace=True),
-            torch.nn.Linear(128,64),
-            torch.nn.BatchNorm1d(64),
-            torch.nn.ELU(inplace=True),
-            torch.nn.Linear(64, n_classes),
+        # Global spatial pooling
+        self.global_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+
+        # symmetry MLP
+        self.symmetry_mlp = torch.nn.Sequential(
+            torch.nn.Linear(1, 16),  # Reduced size
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm1d(16),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(16, 8)   # Smaller output
         )
 
-    def forward(self, input: torch.Tensor):
-        # wrap the input tensor in a GeometricTensor
-        # (associate it with the input type)
+        # Calculate feature size after group pooling
+        c = self.gpool.out_type.size
+
+        # fully connected layers
+        self.fully_net = torch.nn.Sequential(
+            torch.nn.Linear(c + 8, 128),  # Reduced from 256
+            torch.nn.BatchNorm1d(128),
+            torch.nn.ELU(inplace=True),
+            torch.nn.Dropout(p=0.3),
+            
+            torch.nn.Linear(128, 64),
+            torch.nn.BatchNorm1d(64),
+            torch.nn.ELU(inplace=True),
+            torch.nn.Dropout(p=0.2),
+            
+            torch.nn.Linear(64, n_classes)
+        )
+
+    def forward(self, input: torch.Tensor, symmetry_input: torch.Tensor):
+        # Wrap input in GeometricTensor
         x = nn.GeometricTensor(input, self.input_type)
         
-        # apply each equivariant block
-        
-        # Each layer has an input and an output type
-        # A layer takes a GeometricTensor in input.
-        # This tensor needs to be associated with the same representation of the layer's input type
-        # The Layer outputs a new GeometricTensor, associated with the layer's output type.
-        # As a result, consecutive layers need to have matching input/output types
+        # Apply equivariant blocks 
         x = self.block1(x)
         x = self.block2(x)
-        x = self.pool1(x)
+        x = self.pool1(x)  # Early pooling to reduce memory
         
         x = self.block3(x)
         x = self.block4(x)
-        x = self.pool2(x)
+        x = self.pool2(x)  # Another pooling
         
         x = self.block5(x)
-        x = self.block6(x)
-        
-        # pool over the spatial dimensions
         x = self.pool3(x)
 
-        # pool over the group
+        # Pool over the group (make rotationally invariant)
         x = self.gpool(x)
 
-        # unwrap the output GeometricTensor
-        # (take the Pytorch tensor and discard the associated representation)
+        # Extract PyTorch tensor and apply global pooling
         x = x.tensor
         x = self.global_pool(x)
         x = x.reshape(x.shape[0], -1)
 
+        # Process symmetry features
+        sym_features = self.symmetry_mlp(symmetry_input.unsqueeze(1))
+        
+        # Combine features
+        combined_features = torch.cat((x, sym_features), dim=1)
 
-        # classify with the final fully connected layers)
-        x = self.fully_net(x)
+        # Final classification
+        output = self.fully_net(combined_features)
+        
+        return output
 
-        return x
+
+
+
+
+# Normal neural net 
+
 class NeuralNet3(torch.nn.Module):
     """ Convolutional Neural Network arquitecture. """
     def __init__(self):

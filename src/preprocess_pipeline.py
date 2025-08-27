@@ -189,7 +189,9 @@ def get_img_assymetry(img):
 
 
 def preprocess_images():
+    
     images, _ = get_data(cleaned=False)
+
     print(f"Original images shape: {images.shape}")  
     print(f"Original images dtype: {images.dtype}")
     cleaned_images = []
@@ -214,4 +216,7 @@ def preprocess_images():
     np.save(assymetries_path, np.array(assymetries))
 
 if __name__ == '__main__':
+    images,labels = get_data()
+    root_path = get_project_root()
+    split_data_indices(images,labels,root_path)
     preprocess_images()
