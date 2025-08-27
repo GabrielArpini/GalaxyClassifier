@@ -74,7 +74,7 @@ GalaxyClassifier <br>
 Layer (type:depth-idx)
 Description
 
-NeuralNet (Main model container)
+NeuralNet (Main model container) <br>
 └── Block1                     # First convolutional block <br>
     ├── MaskModule            # Applies input masking <br>
     ├── R2Conv               # 2D rotation-equivariant convolution <br>
