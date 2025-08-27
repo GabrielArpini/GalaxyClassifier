@@ -75,60 +75,60 @@ Layer (type:depth-idx)
 Description
 
 NeuralNet (Main model container)
-└── Block1                     # First convolutional block
-    ├── MaskModule            # Applies input masking
-    ├── R2Conv               # 2D rotation-equivariant convolution
-    │   └── BlocksBasisExpansion  # Basis expansion for ('irrep_0', 'regular') and ('irrep_0', 'irrep_0')
-    ├── InnerBatchNorm       # Batch normalization for channels [1] and [4]
-    ├── ReLU                 # ReLU activation
-    └── FieldDropout         # Dropout for regularization
-└── Block2                   # Second convolutional block
-    ├── R2Conv              # 2D rotation-equivariant convolution
-    │   └── BlocksBasisExpansion  # Basis expansion for ('regular', 'regular') and ('regular', 'irrep_0')
-    ├── InnerBatchNorm      # Batch normalization for channels [1] and [4]
-    ├── ReLU                # ReLU activation
-    └── FieldDropout        # Dropout for regularization
-└── Pool1                   # First pooling layer
-    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
-└── Block3                  # Third convolutional block
-    ├── R2Conv             # 2D rotation-equivariant convolution
-    │   └── BlocksBasisExpansion  # Basis expansion
-    ├── InnerBatchNorm     # Batch normalization for channels [1] and [4]
-    ├── ReLU               # ReLU activation
-    └── FieldDropout       # Dropout for regularization
-└── Block4                 # Fourth convolutional block
-    ├── R2Conv            # 2D rotation-equivariant convolution
-    │   └── BlocksBasisExpansion  # Basis expansion
-    ├── InnerBatchNorm    # Batch normalization for channels [1] and [4]
-    ├── ReLU              # ReLU activation
-    └── FieldDropout      # Dropout for regularization
-└── Pool2                 # Second pooling layer
-    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
-└── Block5                # Fifth convolutional block
-    ├── R2Conv           # 2D rotation-equivariant convolution
-    │   └── BlocksBasisExpansion  # Basis expansion
-    ├── InnerBatchNorm   # Batch normalization for channels [1] and [4]
-    ├── ReLU             # ReLU activation
-    └── FieldDropout     # Dropout for regularization
-└── Pool3                # Third pooling layer
-    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
-└── GroupPooling         # Pools features across group symmetries
-└── AdaptiveAvgPool2d    # Adaptive average pooling
-└── SymmetryMLP         # Symmetry-aware multi-layer perceptron
-    ├── Linear          # Fully connected layer
-    ├── ReLU            # ReLU activation
-    ├── BatchNorm1d     # 1D batch normalization
-    ├── Dropout         # Dropout for regularization
-    └── Linear          # Fully connected layer
-└── FullyNet            # Fully connected network
-    ├── Linear          # Fully connected layer
-    ├── BatchNorm1d     # 1D batch normalization
-    ├── ELU             # ELU activation
-    ├── Dropout         # Dropout for regularization
-    ├── Linear          # Fully connected layer
-    ├── BatchNorm1d     # 1D batch normalization
-    ├── ELU             # ELU activation
-    └── Dropout         # Dropout for regularization
+└── Block1                     # First convolutional block <br>
+    ├── MaskModule            # Applies input masking <br>
+    ├── R2Conv               # 2D rotation-equivariant convolution <br>
+    │   └── BlocksBasisExpansion  # Basis expansion for ('irrep_0', 'regular') and ('irrep_0', 'irrep_0') <br>
+    ├── InnerBatchNorm       # Batch normalization for channels [1] and [4] <br>
+    ├── ReLU                 # ReLU activation <br>
+    └── FieldDropout         # Dropout for regularization <br>
+└── Block2                   # Second convolutional block <br>
+    ├── R2Conv              # 2D rotation-equivariant convolution <br>
+    │   └── BlocksBasisExpansion  # Basis expansion for ('regular', 'regular') and ('regular', 'irrep_0') <br>
+    ├── InnerBatchNorm      # Batch normalization for channels [1] and [4] <br>
+    ├── ReLU                # ReLU activation <br>
+    └── FieldDropout        # Dropout for regularization <br>
+└── Pool1                   # First pooling layer <br>
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling <br>
+└── Block3                  # Third convolutional block <br>
+    ├── R2Conv             # 2D rotation-equivariant convolution <br>
+    │   └── BlocksBasisExpansion  # Basis expansion <br>
+    ├── InnerBatchNorm     # Batch normalization for channels [1] and [4] <br>
+    ├── ReLU               # ReLU activation <br>
+    └── FieldDropout       # Dropout for regularization <br>
+└── Block4                 # Fourth convolutional block<br>
+    ├── R2Conv            # 2D rotation-equivariant convolution<br>
+    │   └── BlocksBasisExpansion  # Basis expansion<br>
+    ├── InnerBatchNorm    # Batch normalization for channels [1] and [4]<br>
+    ├── ReLU              # ReLU activation<br>
+    └── FieldDropout      # Dropout for regularization<br>
+└── Pool2                 # Second pooling layer<br>
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling<br>
+└── Block5                # Fifth convolutional block<br>
+    ├── R2Conv           # 2D rotation-equivariant convolution<br>
+    │   └── BlocksBasisExpansion  # Basis expansion<br>
+    ├── InnerBatchNorm   # Batch normalization for channels [1] and [4]<br>
+    ├── ReLU             # ReLU activation<br>
+    └── FieldDropout     # Dropout for regularization<br>
+└── Pool3                # Third pooling layer<br>
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling<br>
+└── GroupPooling         # Pools features across group symmetries<br>
+└── AdaptiveAvgPool2d    # Adaptive average pooling<br>
+└── SymmetryMLP         # Symmetry-aware multi-layer perceptron<br>
+    ├── Linear          # Fully connected layer<br>
+    ├── ReLU            # ReLU activation<br>
+    ├── BatchNorm1d     # 1D batch normalization<br>
+    ├── Dropout         # Dropout for regularization<br>
+    └── Linear          # Fully connected layer<br>
+└── FullyNet            # Fully connected network<br>
+    ├── Linear          # Fully connected layer<br>
+    ├── BatchNorm1d     # 1D batch normalization<br>
+    ├── ELU             # ELU activation<br>
+    ├── Dropout         # Dropout for regularization<br>
+    ├── Linear          # Fully connected layer<br>
+    ├── BatchNorm1d     # 1D batch normalization<br>
+    ├── ELU             # ELU activation<br>
+    └── Dropout         # Dropout for regularization<br>
 
 
 
