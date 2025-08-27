@@ -1,19 +1,19 @@
 # Galaxy Classifier CNN with class balanced focal loss
-The following project is an attempt to implement a Convolutional Neural Network using a custom made loss function from the paper: "Class-Balanced Loss Based on Effective Number of Samples" from Yin Cui et al.
+The following project is an attempt to implement a Equivariant Convolutional Neural Network using a custom made loss function from the paper: "Class-Balanced Loss Based on Effective Number of Samples" from Yin Cui et al.
 
 ## Introduction
 
-The main objective of this project is to achieve a solid grasp in the Pytorch framework with a hands-on approach. As I am a huge enthusiast of astrophysics, i've decided to do my project in that field. 
-In our universe there are several astronomical objects, like: planets, suns, asteroids, black holes, galaxies, etc. Because of their different formation process, they can achieve different morphologies that can be observed from our planet, but because everything in our universe follows the rules of physics, it is possible to find some patterns in said objects, the easiest one to grasp (at least for me) is the morphology of galaxies, they can have multiple spirals, not have spirals at all, etc. This project main goal is to create a CNN capable of classifying an image of a galaxy with certain accuracy above an arbitrary threshold defined by my, which is 80%, since SOTA models can achieve above 90% accuracy using different methodologies.
+The main objective of this project is to achieve a solid grasp in the PyTorch framework with a hands-on approach. As I am a huge enthusiast of astrophysics, I've decided to do my project in that field. 
+In our universe there are several astronomical objects, like: planets, suns, asteroids, black holes, galaxies, etc. Because of their different formation process, they can achieve different morphologies that can be observed from our planet, but because everything in our universe follows the rules of physics, it is possible to find some patterns in said objects, the easiest one to grasp (at least for me) is the morphology of galaxies, they can have multiple spirals, not have spirals at all, etc. This project main goal is to create a CNN capable of classifying an image of a galaxy with certain accuracy above an arbitrary threshold defined by me, which is 80%, since SOTA models can achieve above 90% accuracy using different methodologies.
 
 ## Device specs
-Bellow is the computer specs of my PC, used to do the project, a Google Colab will do just fine, but it blocks the GPU after a few hours so i decided to use my PC:
+Below is the computer specs of my PC, used to do the project, a Google Colab will do just fine, but it blocks the GPU after a few hours so I decided to use my PC:
 
 GPU: RTX 2060 6GB <br>
 CPU: Ryzen 5 5600 <br>
 RAM: 2x8GB DDR4 <br>
-OS: Ubuntu 24.04.2 LTS <br>
-Pyton 3.11 
+OS: Linux 6.16.3-arch1-1 <br>
+Python: 3.11 
 
 
 ## Dataset
@@ -32,91 +32,128 @@ Galaxy10 dataset (17736 images) <br>
 └── Class 9 (1873 images): Edge-on Galaxies with Bulge <br>
 Taken from official website: https://astronn.readthedocs.io/en/latest/galaxy10.html#introduction <br>
 
-Because the dataset is huge to load at once, and then split it into training dataset and validation dataset for my RAM or Google Colab, i implemented a Lazy Load approach, which stores in ram the indices of the galaxy images/labels, and loads them as needed, which saved a lot of space, sadly my Ubuntu is in a HDD, which made things slow for me, but at least didn't overloaded the memory.
+Because the dataset is huge to load at once, and then split it into training dataset and validation dataset for my RAM or Google Colab, I implemented a Lazy Load approach, which stores in RAM the indices of the galaxy images/labels, and loads them as needed, which saved a lot of space, sadly my arch is in a HDD, which made things slow for me, but at least didn't overload the memory.
 
 ## Project structure
 
+The final project structure will look like the following tree:
+
 GalaxyClassifier <br>
-├── data # Folder with galaxies and labels. <br>
-│   ├── images.npy # Downloaded with the train script <br>
-│   └── labels.npy # Downloaded with the train script <br>
+├── data <br>
+│   ├── asymmetries.npy    # Asymmetries of the galaxies <br> 
+│   ├── images_cleaned.npy # Images after cleaning (star removal)<br>
+│   ├── images.npy         # Original images <br>
+│   ├── labels.npy         # Images labels <br>
+│   ├── test_indices.npy   # Test indices<br>
+│   ├── train_indices.npy  # Train indices <br>
+│   └── valid_indices.npy  # Valid indices <br>
 ├── LICENSE <br>
-├── mlflow.db # sqlite3 database to store model runs and info. <br>
-├── model_summary.txt # Model structure summary <br>
-├── notebooks  <br>
-│   ├── cam_visualization.png # Cam image from analysis notebook <br>
-│   └── model_analysis.ipynb # Notebook with post training analysis <br>
+├── mlflow.db   # SQLite database for MLflow <br>
+├── mlruns <br>
+├── notebooks <br>
+│   ├── EDA.ipynb <br>             # Exploratory Data Analysis 
+│   ├── grad_cam_visualization.png # Grad-CAM image file <br>
+│   └── model_analysis.ipynb       # model analysis notebook, creates grad_cam, conf matrix,etc <br>
 ├── README.md <br>
-├── requirements.txt <br> 
+├── requirements.txt <br>
 └── src <br>
-    ├── cnn.py # The CNN structure <br>
-    ├── traincnn.py # The training script <br>
-    └── utils # Utilities directory  <br>
-        ├── early_stop.py # Class for the early stop feature <br>
-        ├── focal_loss.py # Class balanced focal loss implementation <br>
-        ├── general.py # General utilities. <br>
-        └── \_\_init\_\_.py <br>
+    ├── cnn.py <br>            # ECNN architecture, have a normal cnn as well 
+    ├── preprocess_pipeline.py # Script to remove stars, calculate indices, symmetries, etc. <br>
+    ├── traincnn.py            # Trains the ECNN <br>
+    └── utils<br>
+        ├── early_stop.py <br>
+        ├── focal_loss.py <br>
+        ├── general.py    # General utils<br>
+        └── __init__.py <br>
 
-5 directories, 16 files <br>
+6 directories, 22 files <br>
 
 
-# CNN (Convolutional Neural Network)
-TODO INSERT IMAGE OR MAINTAIN REPRESENTATION BELLOW
+# E-CNN (Equivariant Convolutional Neural Network) Architecture
 
-| Layer (type:depth-idx) | Output Shape            | Param #   |
-|---------------------|-------------------------|-----------|
-| NeuralNet           | [32, 10]                | --        |
-| Conv2d: 1-1         | [32, 32, 256, 256]      | 896       |
-| MaxPool2d: 1-2      | [32, 32, 128, 128]      | --        |
-| Conv2d: 1-3         | [32, 64, 128, 128]      | 18,496    |
-| MaxPool2d: 1-4      | [32, 64, 64, 64]        | --        |
-| Conv2d: 1-5         | [32, 128, 64, 64]       | 73,856    |
-| MaxPool2d: 1-6      | [32, 128, 32, 32]       | --        |
-| Conv2d: 1-7         | [32, 256, 32, 32]       | 295,168   |
-| MaxPool2d: 1-8      | [32, 256, 16, 16]       | --        |
-| Conv2d: 1-9         | [32, 512, 16, 16]       | 1,180,160 |
-| MaxPool2d: 1-10     | [32, 512, 8, 8]         | --        |
-| Conv2d: 1-11        | [32, 1024, 8, 8]        | 4,719,616 |
-| MaxPool2d: 1-12     | [32, 1024, 4, 4]        | --        |
-| Linear: 1-13        | [32, 512]               | 8,389,120 |
-| Dropout: 1-14       | [32, 512]               | --        |
-| Linear: 1-15        | [32, 256]               | 131,328   |
-| Dropout: 1-16       | [32, 256]               | --        |
-| Linear: 1-17        | [32, 10]                | 2,570     |
+Layer (type:depth-idx)
+Description
 
-## Summary Statistics
-- **Total params**: 14,811,210
-- **Trainable params**: 14,811,210
-- **Non-trainable params**: 0
-- **Total mult-adds (Units.GIGABYTES)**: 50.54
-- **Input size (MB)**: 25.17
-- **Forward/backward pass size (MB)**: 1057.16
-- **Params size (MB)**: 59.24
-- **Estimated Total Size (MB)**: 1141.57
+NeuralNet (Main model container)
+└── Block1                     # First convolutional block
+    ├── MaskModule            # Applies input masking
+    ├── R2Conv               # 2D rotation-equivariant convolution
+    │   └── BlocksBasisExpansion  # Basis expansion for ('irrep_0', 'regular') and ('irrep_0', 'irrep_0')
+    ├── InnerBatchNorm       # Batch normalization for channels [1] and [4]
+    ├── ReLU                 # ReLU activation
+    └── FieldDropout         # Dropout for regularization
+└── Block2                   # Second convolutional block
+    ├── R2Conv              # 2D rotation-equivariant convolution
+    │   └── BlocksBasisExpansion  # Basis expansion for ('regular', 'regular') and ('regular', 'irrep_0')
+    ├── InnerBatchNorm      # Batch normalization for channels [1] and [4]
+    ├── ReLU                # ReLU activation
+    └── FieldDropout        # Dropout for regularization
+└── Pool1                   # First pooling layer
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
+└── Block3                  # Third convolutional block
+    ├── R2Conv             # 2D rotation-equivariant convolution
+    │   └── BlocksBasisExpansion  # Basis expansion
+    ├── InnerBatchNorm     # Batch normalization for channels [1] and [4]
+    ├── ReLU               # ReLU activation
+    └── FieldDropout       # Dropout for regularization
+└── Block4                 # Fourth convolutional block
+    ├── R2Conv            # 2D rotation-equivariant convolution
+    │   └── BlocksBasisExpansion  # Basis expansion
+    ├── InnerBatchNorm    # Batch normalization for channels [1] and [4]
+    ├── ReLU              # ReLU activation
+    └── FieldDropout      # Dropout for regularization
+└── Pool2                 # Second pooling layer
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
+└── Block5                # Fifth convolutional block
+    ├── R2Conv           # 2D rotation-equivariant convolution
+    │   └── BlocksBasisExpansion  # Basis expansion
+    ├── InnerBatchNorm   # Batch normalization for channels [1] and [4]
+    ├── ReLU             # ReLU activation
+    └── FieldDropout     # Dropout for regularization
+└── Pool3                # Third pooling layer
+    └── PointwiseAvgPoolAntialiased2D  # Antialiased average pooling
+└── GroupPooling         # Pools features across group symmetries
+└── AdaptiveAvgPool2d    # Adaptive average pooling
+└── SymmetryMLP         # Symmetry-aware multi-layer perceptron
+    ├── Linear          # Fully connected layer
+    ├── ReLU            # ReLU activation
+    ├── BatchNorm1d     # 1D batch normalization
+    ├── Dropout         # Dropout for regularization
+    └── Linear          # Fully connected layer
+└── FullyNet            # Fully connected network
+    ├── Linear          # Fully connected layer
+    ├── BatchNorm1d     # 1D batch normalization
+    ├── ELU             # ELU activation
+    ├── Dropout         # Dropout for regularization
+    ├── Linear          # Fully connected layer
+    ├── BatchNorm1d     # 1D batch normalization
+    ├── ELU             # ELU activation
+    └── Dropout         # Dropout for regularization
 
-The model also uses kaiming initialization from Kaiming He et al., which was implemented to help prevent exploding gradient problem that i faced during implementation.
+
+
+
+
+
 
 # Training process optimizations
 
-With the goal to check model performance and compare hyperparameters i've decided to implement a MLflow pipeline, to save the experiments in a nested loop used by Optuna (Hyperparameter optimizer that takes a lot of time to find meaningful hyperparameters), the MLflow pipeline also stores the best model in the model registry, making it possible to load it easily in other files, such as the `model_analysis.ipynb`. The best model is achieved after `n` iterations from Optuna, returning the model with best validation accuracy, i've ran Optuna multiple times, with some runs that took more than 30 hours, sadly i made a mistake in the model optimization which made me lose the value of one of them (Focal loss was not able to handle the values of the pt calculation causing NaN after around 80 epochs in one of them, the other was simply a bad model that i used). The training process uses gradient clipping to help with exploding gradients as well.
+With the goal to check model performance and compare hyperparameters I've decided to implement an MLflow pipeline, to save the experiments in a nested loop used by Optuna (Hyperparameter optimizer that takes a lot of time to find meaningful hyperparameters), the MLflow pipeline also stores the best model in the model registry, making it possible to load it easily in other files, such as the `model_analysis.ipynb`. The best model is achieved after `n` iterations from Optuna, returning the model with best validation accuracy, I've ran Optuna multiple times, with some runs that took more than 30 hours, sadly I made a mistake in the model optimization which made me lose the value of one of them (Focal loss was not able to handle the values of the pt calculation causing NaN after around 80 epochs in one of them, the other was simply a bad model that I used). The training process uses gradient clipping to help with exploding gradients as well.
 
-The galaxy dataset contains some classes with a huge imbalance if compared with the mean, to solve that i've implemented the Class Balanced Focal Loss, which computes the effective number of samples and uses it to attribute a focus to the under presented classes with hyperparameters tuned by Optuna.
+The galaxy dataset contains some classes with a huge imbalance if compared with the mean, to solve that I've implemented the Class Balanced Focal Loss, which computes the effective number of samples and uses it to attribute a focus to the under presented classes with hyperparameters tuned by Optuna.
 Data Augmentation is also used, the following code shows all the augmentation used, to help with the imbalanced classes and the underfitting problem:
 
-```Python
+```Bash 
 train_transform = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.CenterCrop((170,240)),
-    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.5),
-    v2.GaussianBlur(kernel_size=3),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=(0,270)),
-    transforms.Resize((256,256)),
+    transforms.RandomResizedCrop(256, scale=(0.8, 1.0)),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.ToTensor(),
-    transforms.Normalize(mean=0.5, std=0.5)
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  
 ])
 ```
-RADAM is used as an optimizer, as it doesn't need to warm up the weights or tune hyperparameters, it is used with a OneCycleLR scheduler, allowing the model to escape local minima (Huge problem that i had, and probably still have in some magnitude).
+
+RAdam is used as an optimizer, as it doesn't need to warm up the weights or tune hyperparameters, it is used with a ReduceLROnPlateau scheduler, allowing the model to escape local minima (Huge problem that I had, and probably still have in some magnitude).
 
 # How to run
 First, clone the repository and cd into it:
@@ -124,18 +161,27 @@ First, clone the repository and cd into it:
 git clone https://github.com/GabrielArpini/GalaxyClassifier.git
 cd GalaxyClassifier
 ```
-Then you need to start mlflow with:
+Then you need to start MLflow with:
 ```Bash
 $ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
-This will open the port 5000 for the UI of mlflow, where you will be able to see the experiment runs and model version, and also enable the python scripts to comunicate with the API.
-Now, you can run the `traincnn.py` script to start the training process, you can tweak the training variables inside the `traincnn.py` file.
-Before running the script make sure that you have gcc-fortran installend, since escnn uses it.
-```Bash
-$ python3 src/traincnn.py
+This will open the port 5000 for the UI of MLflow, where you will be able to see the experiment runs and model version, and also enable the Python scripts to communicate with the API.
+First, preprocess the data:
+
+```Bash 
+$ python3.11 src/preprocess_pipeline.py 
 ```
-The folder `notebooks` contains some analysis (for now a CAM image and confusion matrix) of the best model saved in the mlflow model registry, to run that you need to just start the jupyter notebook and run the cells:
+
+Now, you can run the `traincnn.py` script to start the training process, you can tweak the training variables inside the `traincnn.py` file.
+Before running the script make sure that you have gcc-fortran installed, since escnn uses it.
+
 ```Bash
+$ python3.11 src/traincnn.py
+
+```
+The folder `notebooks` contains some analysis (for now a CAM image and confusion matrix) of the best model saved in the MLflow model registry, to run that you need to just start the jupyter notebook and run the cells in `/notebooks/model_analysis.ipynb`:
+```Bash
+
 $ jupyter notebook
 ```
 
@@ -236,6 +282,35 @@ $ jupyter notebook
 ```
 
 ```bibtex
+@article{Conselice_1997,
+   title={The Symmetry, Color, and Morphology of Galaxies},
+   volume={109},
+   ISSN={1538-3873},
+   url={http://dx.doi.org/10.1086/134004},
+   DOI={10.1086/134004},
+   journal={Publications of the Astronomical Society of the Pacific},
+   publisher={IOP Publishing},
+   author={Conselice, C. J.},
+   year={1997},
+   month=nov, pages={1251} 
+}
+```
+
+
+```bibtex
+@misc{pandya2023e2equivariantneuralnetworks,
+      title={E(2) Equivariant Neural Networks for Robust Galaxy Morphology Classification}, 
+      author={Sneh Pandya and Purvik Patel and Franc O and Jonathan Blazek},
+      year={2023},
+      eprint={2311.01500},
+      archivePrefix={arXiv},
+      primaryClass={astro-ph.GA},
+      url={https://arxiv.org/abs/2311.01500}, 
+}
+```
+
+
+```bibtex
 @article{DBLP:journals/corr/OSheaN15,
   author       = {Keiron O'Shea and
                   Ryan Nash},
@@ -301,4 +376,35 @@ $ jupyter notebook
     author={Leung Henry and Bovy Jo},
     url={https://github.com/henrysky/astroNN},
 }
+
 ```
+
+```bibtex
+@misc{Equivariant neural networks - what, why and how?,
+    author={Weiler Maurice},
+    url={https://maurice-weiler.gitlab.io/blog_post/cnn-book_1_equivariant_networks/},
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

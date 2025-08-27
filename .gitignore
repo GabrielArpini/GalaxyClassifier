@@ -7,3 +7,4 @@ mlartifacts
 model_summary.txt
 mlruns
 venv311
+.venv311/
