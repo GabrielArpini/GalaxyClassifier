@@ -180,7 +180,7 @@ class LazyGalaxyDataset(Dataset):
             image = self.transform(image)
         else:
             image = torch.from_numpy(image.astype(np.float32)).permute(2, 0, 1) / 255.0
-    return image, label, symmetry
+        return image, label, symmetry
 
    
 
